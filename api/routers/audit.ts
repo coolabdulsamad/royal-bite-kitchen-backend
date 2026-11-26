@@ -26,6 +26,9 @@ export const AUDIT_ACTIONS = [
   "menu.category",
   "partner.create",
   "partner.update",
+  "settlement.create",
+  "settlement.paid",
+  "settlement.cancel",
   "settings.update",
 ] as const;
 

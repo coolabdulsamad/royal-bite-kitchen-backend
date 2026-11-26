@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  index,
   int,
   mysqlEnum,
   mysqlTable,
@@ -400,6 +401,11 @@ export const partnerConnections = mysqlTable("partner_connections", {
   token: varchar("token", { length: 80 }).notNull().unique(),
   /** Partner-side store/branch reference (optional, informational). */
   storeRef: varchar("store_ref", { length: 64 }),
+  /**
+   * Commission the partner deducts before settling us, in BASIS POINTS
+   * (2000 = 20.00%). Settlement invoices snapshot it at creation time.
+   */
+  commissionBps: int("commission_bps").notNull().default(0),
   active: boolean("active").notNull().default(true),
   createdById: bigint("created_by_id", { mode: "number", unsigned: true }).references(
     () => users.id,
@@ -409,6 +415,123 @@ export const partnerConnections = mysqlTable("partner_connections", {
 });
 
 export type PartnerConnection = typeof partnerConnections.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Delivery-partner settlements
+//
+// Partner orders (Glovo / Chowdeck) are RECEIVABLES: the partner collects the
+// customer's money and pays us in batches, minus commission. A settlement
+// invoice accumulates completed partner orders; marking the invoice paid
+// posts each order as a dated sale (transfer method, reference = invoice no),
+// books the commission as an expense, and marks every order settled.
+// ---------------------------------------------------------------------------
+
+export const settlementInvoices = mysqlTable("settlement_invoices", {
+  id: serial("id").primaryKey(),
+  invoiceNo: varchar("invoice_no", { length: 20 }).notNull().unique(),
+  partnerConnectionId: bigint("partner_connection_id", {
+    mode: "number",
+    unsigned: true,
+  })
+    .notNull()
+    .references(() => partnerConnections.id),
+  /** Snapshots — the printed invoice stays true even if the connection is
+   *  renamed or its commission rate changes later. */
+  partnerName: varchar("partner_name", { length: 64 }).notNull(),
+  provider: mysqlEnum("provider", ["glovo", "chowdeck"]).notNull(),
+  status: mysqlEnum("status", ["open", "paid", "cancelled"])
+    .notNull()
+    .default("open"),
+  orderCount: int("order_count").notNull(),
+  grossKobo: int("gross_kobo").notNull(),
+  /** Commission rate applied, basis points (2000 = 20.00%). */
+  commissionBps: int("commission_bps").notNull().default(0),
+  commissionKobo: int("commission_kobo").notNull().default(0),
+  /** What the partner actually owes us: gross − commission. */
+  netKobo: int("net_kobo").notNull(),
+  /** Oldest / newest order covered by the invoice. */
+  periodFrom: timestamp("period_from").notNull(),
+  periodTo: timestamp("period_to").notNull(),
+  note: varchar("note", { length: 255 }),
+  createdById: bigint("created_by_id", { mode: "number", unsigned: true }).references(
+    () => users.id,
+  ),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  // ------------------------------------------------------ payment metadata
+  paidAt: timestamp("paid_at"),
+  paidById: bigint("paid_by_id", { mode: "number", unsigned: true }).references(
+    () => users.id,
+  ),
+  paymentMethod: mysqlEnum("payment_method", ["cash", "bank_pos", "transfer"]),
+  paymentReference: varchar("payment_reference", { length: 120 }),
+  /** Sale id of the commission expense booked on payment (traceability). */
+  commissionExpenseId: bigint("commission_expense_id", {
+    mode: "number",
+    unsigned: true,
+  }),
+  // ------------------------------------------------------ cancel metadata
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledById: bigint("cancelled_by_id", {
+    mode: "number",
+    unsigned: true,
+  }).references(() => users.id),
+  cancelReason: varchar("cancel_reason", { length: 255 }),
+});
+
+/**
+ * Invoice ↔ order join. An order may sit on at most one OPEN or PAID invoice
+ * (enforced inside the creation transaction); cancelled invoices keep their
+ * rows for history but release the orders for re-invoicing.
+ */
+export const settlementInvoiceOrders = mysqlTable(
+  "settlement_invoice_orders",
+  {
+    id: serial("id").primaryKey(),
+    invoiceId: bigint("invoice_id", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => settlementInvoices.id),
+    orderId: bigint("order_id", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => orders.id),
+  },
+  (table) => [
+    uniqueIndex("sio_invoice_order_unique").on(table.invoiceId, table.orderId),
+    // The settlement register probes "is this order on a live invoice?" by
+    // order id — the unique index above leads with invoice_id and can't help.
+    index("sio_order_idx").on(table.orderId),
+  ],
+);
+
+export const settlementInvoicesRelations = relations(
+  settlementInvoices,
+  ({ one, many }) => ({
+    partnerConnection: one(partnerConnections, {
+      fields: [settlementInvoices.partnerConnectionId],
+      references: [partnerConnections.id],
+    }),
+    createdBy: one(users, {
+      fields: [settlementInvoices.createdById],
+      references: [users.id],
+    }),
+    orders: many(settlementInvoiceOrders),
+  }),
+);
+
+export const settlementInvoiceOrdersRelations = relations(
+  settlementInvoiceOrders,
+  ({ one }) => ({
+    invoice: one(settlementInvoices, {
+      fields: [settlementInvoiceOrders.invoiceId],
+      references: [settlementInvoices.id],
+    }),
+    order: one(orders, {
+      fields: [settlementInvoiceOrders.orderId],
+      references: [orders.id],
+    }),
+  }),
+);
+
+export type SettlementInvoice = typeof settlementInvoices.$inferSelect;
 
 /**
  * Kitchen orders — taken by waiters/cashiers before payment, or ingested from

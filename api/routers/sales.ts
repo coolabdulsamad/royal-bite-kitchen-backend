@@ -176,12 +176,24 @@ export const salesRouter = createRouter({
       let subtotalKobo: number;
       if (input.orderId !== undefined) {
         const [ord] = await db
-          .select({ id: orders.id, status: orders.status, saleId: orders.saleId })
+          .select({
+            id: orders.id,
+            status: orders.status,
+            saleId: orders.saleId,
+            source: orders.source,
+          })
           .from(orders)
           .where(eq(orders.id, input.orderId))
           .limit(1);
         if (!ord) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+        }
+        if (ord.source !== "pos") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Delivery partner orders are paid in batch settlements — open the Settlements page instead of the till",
+          });
         }
         if (ord.status === "cancelled") {
           throw new TRPCError({

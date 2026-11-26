@@ -138,6 +138,20 @@ export const ordersRouter = createRouter({
           customerPhone: orders.customerPhone,
           deliveryAddress: orders.deliveryAddress,
           kitchenPrintedAt: orders.kitchenPrintedAt,
+          /** Live invoice state for partner orders (scalar subqueries keep
+           *  one row per order even after cancel + re-invoice). */
+          liveInvoiceStatus: sql<"open" | "paid" | null>`(
+            SELECT si.status FROM settlement_invoice_orders sio
+            INNER JOIN settlement_invoices si ON si.id = sio.invoice_id
+            WHERE sio.order_id = ${orders.id} AND si.status IN ('open','paid')
+            LIMIT 1
+          )`.as("live_inv_status"),
+          liveInvoiceNo: sql<string | null>`(
+            SELECT si.invoice_no FROM settlement_invoice_orders sio
+            INNER JOIN settlement_invoices si ON si.id = sio.invoice_id
+            WHERE sio.order_id = ${orders.id} AND si.status IN ('open','paid')
+            LIMIT 1
+          )`.as("live_inv_no"),
         })
         .from(orders)
         .leftJoin(users, eq(users.id, orders.staffId))
@@ -159,6 +173,16 @@ export const ordersRouter = createRouter({
 
       return rows.map((r) => ({
         ...r,
+        /** Partner-order receivable state: unsettled → invoiced → settled. */
+        settlementState:
+          r.source === "pos"
+            ? null
+            : r.liveInvoiceStatus === "paid"
+              ? ("settled" as const)
+              : r.liveInvoiceStatus === "open"
+                ? ("invoiced" as const)
+                : ("unsettled" as const),
+        settlementInvoiceNo: r.source === "pos" ? null : r.liveInvoiceNo,
         createdAt: r.createdAt.toISOString(),
         updatedAt: r.updatedAt.toISOString(),
         cancelledAt: r.cancelledAt ? r.cancelledAt.toISOString() : null,
@@ -199,11 +223,13 @@ export const ordersRouter = createRouter({
         served: ["placed", "preparing", "ready"],
       };
       // Serving a ticket the customer ALREADY paid closes it out — the meal
-      // is done and the money is in. An unpaid served order stays on the
-      // board (dine-in guests often pay after eating).
+      // is done and the money is in. An unpaid served POS order stays on the
+      // board (dine-in guests often pay after eating). Partner delivery
+      // orders always close at served: their money is tracked on the
+      // settlements page, never at the till.
       const target =
         input.to === "served"
-          ? sql<OrderStatus>`IF(${orders.saleId} IS NULL, 'served', 'completed')`
+          ? sql<OrderStatus>`IF(${orders.saleId} IS NULL AND ${orders.source} = 'pos', 'served', 'completed')`
           : input.to;
       const [result] = await db
         .update(orders)

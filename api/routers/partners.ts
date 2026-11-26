@@ -8,6 +8,7 @@ import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import { partnerConnections } from "@db/schema";
 import { PARTNER_PROVIDERS } from "@contracts/partners";
+import { COMMISSION_BPS_MAX } from "@contracts/settlements";
 
 /**
  * Delivery-partner connections — manager and above only. The webhook token
@@ -23,6 +24,7 @@ export const partnersRouter = createRouter({
         provider: partnerConnections.provider,
         name: partnerConnections.name,
         storeRef: partnerConnections.storeRef,
+        commissionBps: partnerConnections.commissionBps,
         active: partnerConnections.active,
         lastOrderAt: partnerConnections.lastOrderAt,
         createdAt: partnerConnections.createdAt,
@@ -42,6 +44,8 @@ export const partnersRouter = createRouter({
         provider: z.enum(PARTNER_PROVIDERS),
         name: z.string().trim().min(2).max(64),
         storeRef: z.string().trim().max(64).optional(),
+        /** Commission the partner keeps, basis points (2000 = 20%). */
+        commissionBps: z.number().int().min(0).max(COMMISSION_BPS_MAX).default(0),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -54,6 +58,7 @@ export const partnersRouter = createRouter({
           name: input.name,
           token,
           storeRef: input.storeRef || null,
+          commissionBps: input.commissionBps,
           createdById: ctx.staff.sub,
         })
         .$returningId();
@@ -80,10 +85,11 @@ export const partnersRouter = createRouter({
         id: z.number().int().positive(),
         name: z.string().trim().min(2).max(64).optional(),
         storeRef: z.string().trim().max(64).nullish(),
+        commissionBps: z.number().int().min(0).max(COMMISSION_BPS_MAX).optional(),
         active: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = getDb();
       const [existing] = await db
         .select({ id: partnerConnections.id })
@@ -98,9 +104,19 @@ export const partnersRouter = createRouter({
         .set({
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.storeRef !== undefined ? { storeRef: input.storeRef || null } : {}),
+          ...(input.commissionBps !== undefined
+            ? { commissionBps: input.commissionBps }
+            : {}),
           ...(input.active !== undefined ? { active: input.active } : {}),
         })
         .where(eq(partnerConnections.id, input.id));
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "partner.update",
+        entityType: "partner",
+        entityId: input.id,
+        detail: `Partner connection #${input.id} updated`,
+      });
       return { ok: true as const, id: input.id };
     }),
 
