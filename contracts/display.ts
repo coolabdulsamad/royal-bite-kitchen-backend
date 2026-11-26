@@ -31,12 +31,15 @@ export type CustomerDisplayState =
       subtotalKobo: number;
       discountKobo: number;
       totalKobo: number;
+      /** Set once the cashier attaches a customer (regulars / credit tabs). */
+      customerName?: string | null;
     }
   | {
       kind: "payment";
       totalKobo: number;
       paidKobo: number;
       payments: DisplayPayment[];
+      customerName?: string | null;
     }
   | {
       kind: "complete";
@@ -45,6 +48,7 @@ export type CustomerDisplayState =
       paidKobo: number;
       changeKobo: number;
       payments: DisplayPayment[];
+      customerName?: string | null;
     };
 
 /** Display → POS handshake: ask the POS to re-send its current state. */

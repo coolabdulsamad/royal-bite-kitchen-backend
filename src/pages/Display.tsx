@@ -59,6 +59,9 @@ function BuildingScreen({
     <div className="flex min-h-0 flex-1 flex-col">
       <p className="px-8 pb-3 pt-6 text-[11px] font-semibold uppercase tracking-[0.35em] text-royal-dim">
         Your order
+        {state.customerName && (
+          <span className="text-royal-accent"> · {state.customerName}</span>
+        )}
       </p>
       <div className="royal-scroll min-h-0 flex-1 overflow-y-auto px-8">
         {state.lines.length === 0 ? (
@@ -116,6 +119,14 @@ function PaymentScreen({
   const changeKobo = Math.max(0, state.paidKobo - state.totalKobo);
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-10 text-center">
+      {state.customerName && (
+        <p
+          className="mb-6 rounded-full border border-royal-accent/40 bg-royal-faint/30 px-6 py-2 text-sm uppercase tracking-[0.25em] text-royal-accent"
+          data-testid="display-customer"
+        >
+          Serving {state.customerName}
+        </p>
+      )}
       <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-royal-dim">
         Amount due
       </p>
@@ -163,7 +174,9 @@ function CompleteScreen({
       <span className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-emerald-400/70 bg-emerald-400/10">
         <Check className="h-10 w-10 text-emerald-400" strokeWidth={2} />
       </span>
-      <h1 className="mt-8 font-display text-6xl text-royal-cream">Thank you!</h1>
+      <h1 className="mt-8 font-display text-6xl text-royal-cream">
+        Thank you{state.customerName ? `, ${state.customerName}` : ""}!
+      </h1>
       <p className="mt-3 text-sm uppercase tracking-[0.35em] text-royal-dim">
         Receipt {state.receiptNo}
       </p>

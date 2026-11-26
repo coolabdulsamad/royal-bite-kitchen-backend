@@ -56,6 +56,7 @@ export default function PosPage() {
   const [paymentProgress, setPaymentProgress] = useState<{
     paidKobo: number;
     payments: Array<{ label: string; amountKobo: number }>;
+    customerName?: string | null;
   } | null>(null);
 
   // ── Order-payment handoff from the orders board (Pay button) ──
@@ -155,6 +156,7 @@ export default function PosPage() {
       totalKobo,
       paidKobo: paymentProgress?.paidKobo ?? 0,
       payments: paymentProgress?.payments ?? [],
+      customerName: paymentProgress?.customerName ?? null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkoutOpen, paymentProgress, totalKobo]);
@@ -308,6 +310,7 @@ export default function PosPage() {
         label: PAYMENT_METHOD_LABEL[p.method],
         amountKobo: p.amountKobo,
       })),
+      customerName: sale.customerName ?? null,
     });
     if (printerSettings.autoPrint) {
       // fire-and-forget — the receipt modal offers a retry if this fails

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, Loader2, Plus, Trash2, User, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { trpc } from "@/providers/trpc";
 import { formatNaira, nairaToKobo } from "@contracts/money";
@@ -62,6 +62,153 @@ interface PaymentRow {
 const inputCls =
   "w-full border-b border-royal-line bg-transparent py-2 text-sm text-royal-cream placeholder:text-royal-dim/50 transition-colors focus:border-royal-accent focus:outline-none";
 
+interface CustomerRowLite {
+  id: number;
+  name: string;
+  phone: string | null;
+  creditBalanceKobo: number;
+}
+
+/**
+ * Themed customer picker — a native <select> renders an unstyled white OS
+ * popup (unreadable on the dark theme, no search), so this is a custom
+ * dropdown: button + filterable panel, opens upward (it sits low in the
+ * checkout modal).
+ */
+function CustomerPicker({
+  rows,
+  value,
+  onChange,
+}: {
+  rows: CustomerRowLite[];
+  value: number | null;
+  onChange: (id: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const selected = rows.find((c) => c.id === value) ?? null;
+  const term = search.trim().toLowerCase();
+  const filtered = term
+    ? rows.filter(
+        (c) =>
+          c.name.toLowerCase().includes(term) ||
+          (c.phone ?? "").toLowerCase().includes(term),
+      )
+    : rows;
+
+  function pick(id: number | null) {
+    onChange(id);
+    setOpen(false);
+    setSearch("");
+  }
+
+  return (
+    <div className="relative min-w-0 flex-1" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        data-testid="customer-picker"
+        className="flex w-full items-center gap-2 border-b border-royal-line bg-transparent py-2 text-left text-sm transition-colors focus:border-royal-accent focus:outline-none"
+      >
+        <User className="h-3.5 w-3.5 shrink-0 text-royal-dim" strokeWidth={1.75} />
+        {selected ? (
+          <span className="min-w-0 flex-1 truncate text-royal-cream">
+            {selected.name}
+            {selected.phone ? ` · ${selected.phone}` : ""}
+            {selected.creditBalanceKobo > 0 && (
+              <span className="text-amber-400">
+                {" "}
+                (owes {formatNaira(selected.creditBalanceKobo)})
+              </span>
+            )}
+          </span>
+        ) : (
+          <span className="flex-1 text-royal-dim">— walk-in / no customer —</span>
+        )}
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-royal-dim transition-transform ${open ? "rotate-180" : ""}`}
+          strokeWidth={1.75}
+        />
+      </button>
+
+      {open && (
+        <div
+          className="absolute bottom-full left-0 z-50 mb-2 w-full border border-royal-line bg-royal-panel shadow-2xl"
+          data-testid="customer-picker-panel"
+        >
+          <div className="border-b border-royal-line p-2">
+            <input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name or phone…"
+              data-testid="customer-search"
+              className="w-full bg-transparent px-2 py-1.5 text-sm text-royal-cream placeholder:text-royal-dim/50 focus:outline-none"
+            />
+          </div>
+          <div className="royal-scroll max-h-64 overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => pick(null)}
+              data-testid="customer-walkin"
+              className={`flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm transition-colors hover:bg-royal-faint/40 ${
+                value === null ? "text-royal-accent" : "text-royal-dim"
+              }`}
+            >
+              — walk-in / no customer —
+              {value === null && <Check className="h-3.5 w-3.5" strokeWidth={2} />}
+            </button>
+            {filtered.length === 0 ? (
+              <p className="px-3 py-4 text-center text-xs text-royal-dim">
+                No customer matches “{search}”
+              </p>
+            ) : (
+              filtered.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => pick(c.id)}
+                  data-testid={`customer-option-${c.id}`}
+                  className={`flex w-full items-center justify-between gap-2 border-t border-royal-line/40 px-3 py-2.5 text-left text-sm transition-colors hover:bg-royal-faint/40 ${
+                    value === c.id ? "text-royal-accent" : "text-royal-cream"
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {c.name}
+                    {c.phone ? (
+                      <span className="text-royal-dim"> · {c.phone}</span>
+                    ) : null}
+                    {c.creditBalanceKobo > 0 && (
+                      <span className="text-amber-400">
+                        {" "}
+                        (owes {formatNaira(c.creditBalanceKobo)})
+                      </span>
+                    )}
+                  </span>
+                  {value === c.id && (
+                    <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CheckoutModal({
   totalKobo,
   lines,
@@ -84,6 +231,7 @@ export function CheckoutModal({
   onProgress?: (progress: {
     paidKobo: number;
     payments: Array<{ label: string; amountKobo: number }>;
+    customerName?: string | null;
   }) => void;
   /** Offline sales may carry a manual date for any role (within 72h). */
   offlineMode?: boolean;
@@ -151,9 +299,10 @@ export function CheckoutModal({
             : null;
         })
         .filter((p): p is { label: string; amountKobo: number } => p !== null),
+      customerName: customerRows.find((c) => c.id === customerId)?.name ?? null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paidKobo, rows, totalKobo]);
+  }, [paidKobo, rows, totalKobo, customerId, customerRows]);
 
   function setRow(index: number, patch: Partial<PaymentRow>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -364,24 +513,11 @@ export function CheckoutModal({
                   : "(optional)"}
               </span>
               <div className="mt-2 flex items-end gap-2">
-                <select
-                  value={customerId ?? ""}
-                  onChange={(e) =>
-                    setCustomerId(e.target.value ? Number(e.target.value) : null)
-                  }
-                  className={`${inputCls} bg-royal-bgsoft`}
-                >
-                  <option value="">— walk-in / no customer —</option>
-                  {customerRows.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                      {c.phone ? ` · ${c.phone}` : ""}
-                      {c.creditBalanceKobo > 0
-                        ? ` (owes ${formatNaira(c.creditBalanceKobo)})`
-                        : ""}
-                    </option>
-                  ))}
-                </select>
+                <CustomerPicker
+                  rows={customerRows}
+                  value={customerId}
+                  onChange={setCustomerId}
+                />
                 <button
                   type="button"
                   onClick={() => setShowNewCustomer((v) => !v)}
