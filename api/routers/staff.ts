@@ -6,6 +6,7 @@ import { asc, eq } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { roleProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
+import { logEvent } from "../audit";
 import { users, type User } from "@db/schema";
 import {
   ROLE_LEVEL,
@@ -117,6 +118,12 @@ export const staffRouter = createRouter({
         staffCode: input.staffCode,
         role: input.role,
         secretHash: bcrypt.hashSync(input.secret, 10),
+      });
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "staff.create",
+        entityType: "staff",
+        detail: `${input.name} (${input.staffCode}) added as ${input.role}`,
       });
       return { ok: true };
     }),

@@ -10,6 +10,7 @@ import DisplayPage from "@/pages/Display";
 import SalesPage from "@/pages/Sales";
 import OrdersPage from "@/pages/Orders";
 import MoneyPage from "@/pages/Money";
+import ActivityPage from "@/pages/Activity";
 import CustomersPage from "@/pages/Customers";
 import StockPage from "@/pages/Stock";
 import AttendancePage from "@/pages/Attendance";
@@ -49,6 +50,14 @@ export default function App() {
           element={
             <RequireAuth>
               <MoneyPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/activity"
+          element={
+            <RequireAuth minRole="manager">
+              <ActivityPage />
             </RequireAuth>
           }
         />

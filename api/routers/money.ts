@@ -4,6 +4,8 @@ import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { authedProcedure, roleProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
+import { logEvent } from "../audit";
+import { formatNaira } from "@contracts/money";
 import {
   customerPayments,
   drawerCounts,
@@ -127,6 +129,13 @@ export const moneyRouter = createRouter({
           staffId: ctx.staff.sub,
           ...(input.expenseAt ? { expenseAt: input.expenseAt } : {}),
         });
+        void logEvent(db, {
+          actor: ctx.staff,
+          action: "expense.create",
+          entityType: "expense",
+          entityId: Number(result.insertId),
+          detail: `${input.category} · ${formatNaira(amountKobo)} · ${input.method} — ${input.note.slice(0, 120)}`,
+        });
         return { ok: true, expenseId: Number(result.insertId), amountKobo };
       }),
 
@@ -176,6 +185,13 @@ export const moneyRouter = createRouter({
             .update(expenses)
             .set({ voidedAt: new Date(), voidedById: ctx.staff.sub, voidReason: input.reason })
             .where(eq(expenses.id, row.id));
+          void logEvent(db, {
+            actor: ctx.staff,
+            action: "expense.void",
+            entityType: "expense",
+            entityId: row.id,
+            detail: `${row.category} · ${formatNaira(row.amountKobo)} voided — ${input.reason}`,
+          });
           return { ok: true, expenseId: row.id };
         });
         return result;
@@ -200,6 +216,13 @@ export const moneyRouter = createRouter({
           expectedKobo: summary.expectedKobo,
           note: input.note ?? null,
           countedById: ctx.staff.sub,
+        });
+        void logEvent(db, {
+          actor: ctx.staff,
+          action: "drawer.count",
+          entityType: "drawer",
+          entityId: Number(result.insertId),
+          detail: `Counted ${formatNaira(countedKobo)} vs expected ${formatNaira(summary.expectedKobo)} (${countedKobo === summary.expectedKobo ? "balanced" : countedKobo > summary.expectedKobo ? "over" : "short"})`,
         });
         return {
           ok: true,

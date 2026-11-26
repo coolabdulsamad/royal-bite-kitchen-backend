@@ -4,6 +4,7 @@ import { and, desc, eq, gte, like, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { authedProcedure, roleProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
+import { logEvent } from "../audit";
 import { stockItems, stockMovements, users } from "@db/schema";
 import { nairaToKobo } from "@contracts/money";
 import { toMilli } from "@contracts/stock";
@@ -99,7 +100,7 @@ export const stockRouter = createRouter({
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
       const openingMilli = toMilli(input.openingQuantity);
-      return await db.transaction(async (tx) => {
+      const created = await db.transaction(async (tx) => {
         const [row] = await tx
           .insert(stockItems)
           .values({
@@ -129,6 +130,14 @@ export const stockRouter = createRouter({
         }
         return { ok: true as const, id: row.id };
       });
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "stock.create",
+        entityType: "stock",
+        entityId: created.id,
+        detail: `${input.name} (${input.unit}) added to stock`,
+      });
+      return created;
     }),
 
   update: roleProcedure("manager")
@@ -167,6 +176,13 @@ export const stockRouter = createRouter({
       if (result.affectedRows === 0) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Stock item not found" });
       }
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "stock.update",
+        entityType: "stock",
+        entityId: input.id,
+        detail: `Stock item #${input.id} updated${input.active === false ? " (deactivated)" : input.active === true ? " (reactivated)" : ""}`,
+      });
       return { ok: true as const, id: input.id };
     }),
 
@@ -211,7 +227,7 @@ export const stockRouter = createRouter({
         });
       }
 
-      return await db.transaction(async (tx) => {
+      const moved = await db.transaction(async (tx) => {
         const [updated] =
           input.type === "restock"
             ? await tx
@@ -254,8 +270,16 @@ export const stockRouter = createRouter({
           note: input.note || null,
           staffId: ctx.staff.sub,
         });
-        return { ok: true as const, itemId: input.itemId, balanceAfterMilli };
+        return { ok: true as const, itemId: input.itemId, balanceAfterMilli, itemName: item.name, unit: item.unit };
       });
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "stock.move",
+        entityType: "stock",
+        entityId: moved.itemId,
+        detail: `${input.type} · ${moved.itemName} · now ${(moved.balanceAfterMilli / 1000).toLocaleString("en-NG")} ${moved.unit}`,
+      });
+      return { ok: true as const, itemId: moved.itemId, balanceAfterMilli: moved.balanceAfterMilli };
     }),
 
   /** Manager-only correction: set the exact counted quantity. */
@@ -271,7 +295,7 @@ export const stockRouter = createRouter({
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
       const newMilli = toMilli(input.newQuantity);
-      return await db.transaction(async (tx) => {
+      const adjusted = await db.transaction(async (tx) => {
         // Read BEFORE the update so the ledger records the true delta.
         const [item] = await tx
           .select()
@@ -293,8 +317,16 @@ export const stockRouter = createRouter({
           note: input.note,
           staffId: ctx.staff.sub,
         });
-        return { ok: true as const, itemId: input.itemId, balanceAfterMilli: newMilli };
+        return { ok: true as const, itemId: input.itemId, balanceAfterMilli: newMilli, itemName: item.name, unit: item.unit };
       });
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "stock.adjust",
+        entityType: "stock",
+        entityId: adjusted.itemId,
+        detail: `Adjustment · ${adjusted.itemName} set to ${(adjusted.balanceAfterMilli / 1000).toLocaleString("en-NG")} ${adjusted.unit} — ${input.note}`,
+      });
+      return { ok: true as const, itemId: adjusted.itemId, balanceAfterMilli: adjusted.balanceAfterMilli };
     }),
 
   history: authedProcedure

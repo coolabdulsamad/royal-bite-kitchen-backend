@@ -568,3 +568,23 @@ export const expensesRelations = relations(expenses, ({ one }) => ({
 export const drawerCountsRelations = relations(drawerCounts, ({ one }) => ({
   countedBy: one(users, { fields: [drawerCounts.countedById], references: [users.id] }),
 }));
+
+// ---- Step 20: audit log ----
+export const auditEvents = mysqlTable("audit_events", {
+  id: serial("id").primaryKey(),
+  /** Null for system actors (e.g. partner webhooks). */
+  actorId: bigint("actor_id", { mode: "number", unsigned: true }).references(() => users.id),
+  /** Denormalized snapshot so the feed reads without a join. */
+  actorName: varchar("actor_name", { length: 120 }),
+  /** Dot-namespaced action, e.g. "sale.complete", "expense.void". */
+  action: varchar("action", { length: 64 }).notNull(),
+  entityType: varchar("entity_type", { length: 40 }).notNull(),
+  entityId: bigint("entity_id", { mode: "number", unsigned: true }),
+  /** Human-readable summary, e.g. "Receipt RB-000123 · ₦4,000 · cash". */
+  detail: varchar("detail", { length: 500 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const auditEventsRelations = relations(auditEvents, ({ one }) => ({
+  actor: one(users, { fields: [auditEvents.actorId], references: [users.id] }),
+}));

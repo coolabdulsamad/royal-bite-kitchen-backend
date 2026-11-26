@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
-import { LogOut, Menu, X } from "lucide-react";
+import { AlertTriangle, Bell, LogOut, Menu, X, XCircle } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { PrinterMenu } from "@/components/PrinterMenu";
 import { SyncMenu } from "@/components/SyncMenu";
@@ -73,8 +73,92 @@ function SidebarFooter() {
   return (
     <div className="border-t border-royal-line px-5 py-3">
       <p className="text-[10px] tracking-wide text-royal-dim/60">
-        v20 · Phase 4 — insights live
+        v21 · Phase 4 — audit live
       </p>
+    </div>
+  );
+}
+
+function AlertsBell() {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const isManager = user ? roleAtLeast(user.role, "manager") : false;
+
+  const today = new Date();
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const alerts = trpc.insights.generate.useQuery(
+    { from: iso, to: iso },
+    { enabled: isManager, refetchInterval: 120_000 },
+  );
+  const items = (alerts.data?.insights ?? []).filter((i) => i.tone === "bad" || i.tone === "warn");
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  if (!isManager) return null;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        aria-label="Alerts"
+        title="Alerts"
+        onClick={() => setOpen((v) => !v)}
+        className="relative p-2 text-royal-dim transition-colors hover:text-royal-cream"
+        data-testid="alerts-bell"
+      >
+        <Bell className="h-4 w-4" strokeWidth={1.75} />
+        {items.length > 0 && (
+          <span
+            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white"
+            data-testid="alerts-badge"
+          >
+            {items.length}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-2 w-80 border border-royal-line bg-royal-panel shadow-2xl" data-testid="alerts-panel">
+          <p className="border-b border-royal-line px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-royal-accent">
+            Needs attention · today
+          </p>
+          {items.length === 0 ? (
+            <p className="px-4 py-5 text-sm text-royal-dim">
+              Nothing needs attention right now.
+            </p>
+          ) : (
+            <div className="max-h-80 divide-y divide-royal-line overflow-y-auto">
+              {items.map((i) => (
+                <div key={i.id} className="px-4 py-3" data-testid={`alert-${i.id}`}>
+                  <p className={`flex items-center gap-2 text-sm font-semibold ${i.tone === "bad" ? "text-red-300" : "text-amber-300"}`}>
+                    {i.tone === "bad" ? (
+                      <XCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                    ) : (
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                    )}
+                    {i.title}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-royal-dim">{i.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <NavLink
+            to="/reports"
+            onClick={() => setOpen(false)}
+            className="block border-t border-royal-line px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.25em] text-royal-accent transition-colors hover:bg-royal-faint/40"
+          >
+            Open reports
+          </NavLink>
+        </div>
+      )}
     </div>
   );
 }
@@ -188,6 +272,7 @@ export function AppShell() {
           <div className="ml-auto flex items-center gap-4">
             <SyncMenu />
             <PrinterMenu />
+            <AlertsBell />
             <span className="hidden items-center gap-2 text-xs text-royal-dim md:flex">
               <span
                 className={`inline-block h-1.5 w-1.5 rounded-full ${

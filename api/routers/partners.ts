@@ -5,6 +5,7 @@ import { desc, eq } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { roleProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
+import { logEvent } from "../audit";
 import { partnerConnections } from "@db/schema";
 import { PARTNER_PROVIDERS } from "@contracts/partners";
 
@@ -56,6 +57,13 @@ export const partnersRouter = createRouter({
           createdById: ctx.staff.sub,
         })
         .$returningId();
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "partner.create",
+        entityType: "partner",
+        entityId: row.id,
+        detail: `${input.provider} connection "${input.name}" created`,
+      });
       return {
         ok: true as const,
         id: row.id,

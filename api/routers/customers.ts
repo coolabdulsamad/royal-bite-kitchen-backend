@@ -4,6 +4,8 @@ import { and, asc, desc, eq, gt, like, or, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { authedProcedure, roleProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
+import { logEvent } from "../audit";
+import { formatNaira } from "@contracts/money";
 import { customerPayments, customers, sales, users } from "@db/schema";
 import { nairaToKobo } from "@contracts/money";
 
@@ -100,6 +102,13 @@ export const customersRouter = createRouter({
             createdById: ctx.staff.sub,
           })
           .$returningId();
+        void logEvent(db, {
+          actor: ctx.staff,
+          action: "customer.create",
+          entityType: "customer",
+          entityId: row.id,
+          detail: `Customer ${input.name} added`,
+        });
         return { ok: true as const, id: row.id };
       } catch (err) {
         if (isDuplicate(err)) {
@@ -257,7 +266,7 @@ export const customersRouter = createRouter({
         });
       }
 
-      return await db.transaction(async (tx) => {
+      const repaid = await db.transaction(async (tx) => {
         const [updated] = await tx
           .update(customers)
           .set({ creditBalanceKobo: sql`credit_balance_kobo - ${amountKobo}` })
@@ -286,7 +295,20 @@ export const customersRouter = createRouter({
           ok: true as const,
           customerId: input.customerId,
           newBalanceKobo: customer.creditBalanceKobo - amountKobo,
+          customerName: customer.name,
         };
       });
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "customer.repay",
+        entityType: "customer",
+        entityId: repaid.customerId,
+        detail: `${repaid.customerName} repaid ${formatNaira(amountKobo)} via ${input.method} · balance now ${formatNaira(repaid.newBalanceKobo)}`,
+      });
+      return {
+        ok: true as const,
+        customerId: repaid.customerId,
+        newBalanceKobo: repaid.newBalanceKobo,
+      };
     }),
 });

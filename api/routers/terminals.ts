@@ -4,6 +4,7 @@ import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { authedProcedure, roleProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
+import { logEvent } from "../audit";
 import { bankPosTerminals, salePayments, sales } from "@db/schema";
 import { ROLE_LEVEL } from "@contracts/roles";
 import type { StaffRole } from "@contracts/roles";
@@ -55,6 +56,13 @@ export const terminalsRouter = createRouter({
           createdById: ctx.staff.sub,
         })
         .$returningId();
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "terminal.create",
+        entityType: "terminal",
+        entityId: row.id,
+        detail: `Terminal ${input.name} registered${input.provider ? ` (${input.provider})` : ""}`,
+      });
       return { ok: true as const, id: row.id };
     }),
 
@@ -86,6 +94,13 @@ export const terminalsRouter = createRouter({
       if (result.affectedRows === 0) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Terminal not found" });
       }
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "terminal.update",
+        entityType: "terminal",
+        entityId: input.id,
+        detail: `Terminal #${input.id} updated${input.active === false ? " (disabled)" : input.active === true ? " (enabled)" : ""}`,
+      });
       return { ok: true as const, id: input.id };
     }),
 

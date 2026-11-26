@@ -4,6 +4,7 @@ import { asc, eq } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { authedProcedure, roleProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
+import { logEvent } from "../audit";
 import {
   categories,
   itemModifierGroups,
@@ -172,6 +173,13 @@ export const menuRouter = createRouter({
           sortOrder: await nextSortOrder("menu_items", input.categoryId),
         })
         .$returningId();
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "menu.item",
+        entityType: "menu",
+        entityId: row.id,
+        detail: `Menu item "${input.name}" created · ₦${input.price.toLocaleString("en-NG")}`,
+      });
       return { ok: true, id: row.id };
     }),
 
@@ -195,6 +203,13 @@ export const menuRouter = createRouter({
       if (input.categoryId !== undefined) patch.categoryId = input.categoryId;
       if (Object.keys(patch).length === 0) return { ok: true };
       await db.update(menuItems).set(patch).where(eq(menuItems.id, input.id));
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "menu.item",
+        entityType: "menu",
+        entityId: input.id,
+        detail: `Menu item #${input.id} updated (${Object.keys(patch).join(", ")})`,
+      });
       return { ok: true };
     }),
 

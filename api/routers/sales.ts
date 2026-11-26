@@ -14,7 +14,8 @@ import {
   sales,
   users,
 } from "@db/schema";
-import { nairaToKobo } from "@contracts/money";
+import { nairaToKobo, formatNaira } from "@contracts/money";
+import { logEvent } from "../audit";
 import { DISCOUNT_LIMIT_PERCENT } from "@contracts/payments";
 import { ROLE_LEVEL } from "@contracts/roles";
 import type { StaffRole } from "@contracts/roles";
@@ -468,6 +469,13 @@ export const salesRouter = createRouter({
           return { saleId: saleRow.id, receiptNo };
         });
 
+        void logEvent(getDb(), {
+          actor: ctx.staff,
+          action: "sale.complete",
+          entityType: "sale",
+          entityId: result.saleId,
+          detail: `Receipt ${result.receiptNo} · ${formatNaira(totalKobo)} · ${payments.map((p) => p.method).join(" + ")}`,
+        });
         return {
           ok: true as const,
           saleId: result.saleId,
@@ -766,6 +774,13 @@ export const salesRouter = createRouter({
             })
             .where(eq(customers.id, sale.customerId));
         }
+      });
+      void logEvent(getDb(), {
+        actor: ctx.staff,
+        action: "sale.return",
+        entityType: "sale",
+        entityId: sale.id,
+        detail: `Receipt ${sale.receiptNo} returned${input.reason ? ` — ${input.reason}` : ""}`,
       });
       return { ok: true as const, saleId: sale.id, receiptNo: sale.receiptNo };
     }),
