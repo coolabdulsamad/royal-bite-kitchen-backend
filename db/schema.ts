@@ -588,3 +588,15 @@ export const auditEvents = mysqlTable("audit_events", {
 export const auditEventsRelations = relations(auditEvents, ({ one }) => ({
   actor: one(users, { fields: [auditEvents.actorId], references: [users.id] }),
 }));
+
+/** Key-value store for restaurant-wide configuration (profile, receipt layout). */
+export const settings = mysqlTable("settings", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  value: varchar("value", { length: 500 }).notNull(),
+  updatedById: bigint("updated_by_id", { mode: "number", unsigned: true }).references(() => users.id),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+});
+
+export const settingsRelations = relations(settings, ({ one }) => ({
+  updatedBy: one(users, { fields: [settings.updatedById], references: [users.id] }),
+}));

@@ -55,7 +55,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "My Account", path: "/account", icon: KeyRound, phase: "Live", minRole: "sales" },
       { title: "Attendance", path: "/attendance", icon: Clock, phase: "Live", minRole: "sales" },
       { title: "Activity", path: "/activity", icon: ScrollText, phase: "Live", minRole: "manager" },
-      { title: "Settings", path: "/settings", icon: Settings, phase: "Phase 4", minRole: "admin" },
+      { title: "Settings", path: "/settings", icon: Settings, phase: "Live", minRole: "admin" },
     ],
   },
 ];

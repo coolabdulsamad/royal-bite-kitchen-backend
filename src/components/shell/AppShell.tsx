@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { AlertTriangle, Bell, LogOut, Menu, X, XCircle } from "lucide-react";
 import { trpc } from "@/providers/trpc";
+import { useBusinessSettings } from "@/lib/businessSettings";
 import { PrinterMenu } from "@/components/PrinterMenu";
 import { SyncMenu } from "@/components/SyncMenu";
 import { outboxStore } from "@/lib/offline";
@@ -73,7 +74,7 @@ function SidebarFooter() {
   return (
     <div className="border-t border-royal-line px-5 py-3">
       <p className="text-[10px] tracking-wide text-royal-dim/60">
-        v21 · Phase 4 — audit live
+        v22 · Phase 4 — settings live
       </p>
     </div>
   );
@@ -212,6 +213,9 @@ export function AppShell() {
     retry: 1,
   });
   const apiOnline = Boolean(ping.data) && !ping.isError;
+
+  // Keep business settings (receipt name/footer) warm for direct printing.
+  useBusinessSettings();
 
   // Start the offline outbox (auto-sync on reconnect + interval).
   useEffect(() => {

@@ -2,6 +2,7 @@ import { createRouter, publicQuery } from "./middleware";
 import { authRouter } from "./routers/auth";
 import { attendanceRouter } from "./routers/attendance";
 import { auditRouter } from "./routers/audit";
+import { settingsRouter } from "./routers/settings";
 import { customersRouter } from "./routers/customers";
 import { insightsRouter } from "./routers/insights";
 import { menuRouter } from "./routers/menu";
@@ -28,6 +29,7 @@ export const appRouter = createRouter({
   reports: reportsRouter,
   insights: insightsRouter,
   audit: auditRouter,
+  settings: settingsRouter,
   customers: customersRouter,
   stock: stockRouter,
 });

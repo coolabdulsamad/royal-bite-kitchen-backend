@@ -3,10 +3,8 @@ import { Loader2, Printer, Plus, X } from "lucide-react";
 import { formatNaira } from "@contracts/money";
 import { PAYMENT_METHOD_LABEL } from "@contracts/payments";
 import { printerManager } from "@/lib/printing/printer";
+import { useBusinessSettings } from "@/lib/businessSettings";
 import type { CompletedSaleResult } from "./PaymentModal";
-
-const STORE_NAME = "Royal Bite Kitchen";
-const STORE_LINE = "Thank you for dining with us";
 
 function formatReceiptDate(iso: string): string {
   const d = new Date(iso);
@@ -23,10 +21,17 @@ function formatReceiptDate(iso: string): string {
 /** The printable receipt itself — rendered on-screen styled like thermal paper
  *  and picked up by the @media print rules in index.css. */
 export function ReceiptPaper({ sale }: { sale: CompletedSaleResult }) {
+  const biz = useBusinessSettings();
   return (
     <div id="receipt-paper" className="w-full bg-[#fdfbf7] px-4 py-5 font-mono text-[11px] leading-relaxed text-neutral-900">
       <div className="text-center">
-        <p className="text-[15px] font-bold tracking-wide">{STORE_NAME}</p>
+        <p className="text-[15px] font-bold tracking-wide">{biz.businessName}</p>
+        {biz.receiptShowAddress && biz.businessAddress && (
+          <p className="mt-0.5 text-[10px] text-neutral-500">{biz.businessAddress}</p>
+        )}
+        {biz.businessPhone && (
+          <p className="text-[10px] text-neutral-500">{biz.businessPhone}</p>
+        )}
         <p className="mt-0.5 text-[10px] text-neutral-500">
           {formatReceiptDate(sale.soldAt)}
         </p>
@@ -120,7 +125,7 @@ export function ReceiptPaper({ sale }: { sale: CompletedSaleResult }) {
 
       <div className="my-2 border-t border-dashed border-neutral-400" />
 
-      <p className="text-center text-[10px] text-neutral-500">{STORE_LINE}</p>
+      <p className="text-center text-[10px] text-neutral-500">{biz.receiptFooter}</p>
     </div>
   );
 }

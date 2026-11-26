@@ -29,6 +29,7 @@ const ACTION_LABEL: Record<string, string> = {
   "menu.category": "Menu category changed",
   "partner.create": "Partner connected",
   "partner.update": "Partner updated",
+  "settings.update": "Settings updated",
 };
 
 const inputCls =

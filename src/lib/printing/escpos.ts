@@ -45,6 +45,8 @@ export interface EscPosOptions {
   feedLines?: number;
   storeName?: string;
   footerLine?: string;
+  /** Extra centered lines under the store name (e.g. address, phone). */
+  headerLines?: string[];
 }
 
 // ── ESC/POS command bytes ──────────────────────────────────────────────────
@@ -168,6 +170,9 @@ export function receiptToEscPos(
   b.raw(...sizeCmd(true, true)).raw(...boldCmd(true));
   b.center(storeName.toUpperCase(), width / 2); // double-width chars take 2 cols
   b.raw(...sizeCmd(false, false)).raw(...boldCmd(false));
+  for (const line of options.headerLines ?? []) {
+    b.center(line, width);
+  }
   b.center(formatReceiptDate(sale.soldAt), width);
   b.raw(...boldCmd(true)).center(`Receipt ${sale.receiptNo}`, width).raw(...boldCmd(false));
   b.center(`Served by ${sale.cashierName}`, width);

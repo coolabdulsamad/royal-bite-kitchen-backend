@@ -15,7 +15,7 @@ import CustomersPage from "@/pages/Customers";
 import StockPage from "@/pages/Stock";
 import AttendancePage from "@/pages/Attendance";
 import ReportsPage from "@/pages/Reports";
-import { SettingsPage } from "@/pages/placeholders";
+import SettingsPage from "@/pages/Settings";
 
 export default function App() {
   return (

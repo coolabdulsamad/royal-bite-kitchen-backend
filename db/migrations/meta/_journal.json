@@ -85,6 +85,13 @@
       "when": 1795658758057,
       "tag": "0011_public_cammi",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1795660335611,
+      "tag": "0012_cool_scarecrow",
+      "breakpoints": true
     }
   ]
 }

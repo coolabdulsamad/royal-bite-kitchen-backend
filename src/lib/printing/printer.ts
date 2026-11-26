@@ -17,6 +17,7 @@ import {
   type KitchenTicketData,
   type ReceiptData,
 } from "./escpos";
+import { getCachedBusinessSettings } from "../businessSettings";
 import {
   connectBlePrinter,
   connectUsbPrinter,
@@ -177,9 +178,15 @@ class PrinterManager {
       this.lastError = null;
       this.emit();
       try {
+        const biz = getCachedBusinessSettings();
         const bytes = receiptToEscPos(sale, {
           width: this.settings.width,
           asciiMoney: this.settings.asciiMoney,
+          storeName: biz.businessName,
+          footerLine: biz.receiptFooter,
+          headerLines: biz.receiptShowAddress
+            ? [biz.businessAddress, biz.businessPhone].filter(Boolean)
+            : [biz.businessPhone].filter(Boolean),
         });
         await this.printer.write(bytes);
         return "direct";
