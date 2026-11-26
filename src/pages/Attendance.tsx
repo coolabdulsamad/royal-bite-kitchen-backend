@@ -15,8 +15,6 @@ import { roleAtLeast } from "@contracts/roles";
 
 const inputCls =
   "mt-2 w-full border-b border-royal-line bg-transparent py-2.5 text-sm text-royal-cream placeholder:text-royal-dim/50 transition-colors focus:border-royal-accent focus:outline-none";
-const labelCls =
-  "text-[10px] font-semibold uppercase tracking-[0.25em] text-royal-dim";
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleString("en-NG", {

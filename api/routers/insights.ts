@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { roleProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";

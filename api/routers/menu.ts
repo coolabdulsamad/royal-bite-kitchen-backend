@@ -157,7 +157,7 @@ export const menuRouter = createRouter({
         price: z.number().min(0).max(10_000_000),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const cat = await db.query.categories.findFirst({
         where: (t) => eq(t.id, input.categoryId),
@@ -193,7 +193,7 @@ export const menuRouter = createRouter({
         categoryId: z.number().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const patch: Partial<typeof menuItems.$inferInsert> = {};
       if (input.name !== undefined) patch.name = input.name;

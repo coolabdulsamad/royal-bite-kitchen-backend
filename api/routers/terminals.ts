@@ -77,7 +77,7 @@ export const terminalsRouter = createRouter({
         active: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const [result] = await db
         .update(bankPosTerminals)

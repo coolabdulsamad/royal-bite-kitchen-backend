@@ -31,7 +31,7 @@ export const ACTIVE_ORDER_STATUSES: readonly OrderStatus[] = [
 
 /** Forward-only workflow — the button label for the next step. */
 export const NEXT_ORDER_STATUS: Partial<
-  Record<OrderStatus, { to: OrderStatus; action: string }>
+  Record<OrderStatus, { to: "preparing" | "ready" | "served"; action: string }>
 > = {
   placed: { to: "preparing", action: "Start preparing" },
   preparing: { to: "ready", action: "Mark ready" },

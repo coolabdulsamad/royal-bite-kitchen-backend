@@ -107,7 +107,7 @@ export const ordersRouter = createRouter({
         conditions.push(
           active
             ? inArray(orders.status, [...ACTIVE_ORDER_STATUSES])
-            : eq(orders.status, input.status),
+            : eq(orders.status, input.status as OrderStatus),
         );
       }
       if (input.source === "pos") conditions.push(eq(orders.source, "pos"));
