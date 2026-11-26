@@ -7,6 +7,7 @@ import { customersRouter } from "./routers/customers";
 import { insightsRouter } from "./routers/insights";
 import { menuRouter } from "./routers/menu";
 import { moneyRouter } from "./routers/money";
+import { notificationsRouter } from "./routers/notifications";
 import { ordersRouter } from "./routers/orders";
 import { partnersRouter } from "./routers/partners";
 import { permissionsRouter } from "./routers/permissions";
@@ -24,6 +25,7 @@ export const appRouter = createRouter({
   staff: staffRouter,
   menu: menuRouter,
   orders: ordersRouter,
+  notifications: notificationsRouter,
   partners: partnersRouter,
   permissions: permissionsRouter,
   sales: salesRouter,
