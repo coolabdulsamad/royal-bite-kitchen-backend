@@ -94,7 +94,7 @@ export const salesRouter = createRouter({
           .limit(1);
         if (!existing) return null;
         const [cashier] = await db
-          .select({ name: users.name })
+          .select({ name: users.name, staffCode: users.staffCode })
           .from(users)
           .where(eq(users.id, existing.staffId))
           .limit(1);
@@ -118,19 +118,29 @@ export const salesRouter = createRouter({
           .where(eq(salePayments.saleId, existing.id));
         const paidKobo = dbPayments.reduce((s, p) => s + p.amountKobo, 0);
         let customerName: string | null = null;
+        let customerPhone: string | null = null;
         if (existing.customerId) {
           const [cust] = await db
-            .select({ name: customers.name })
+            .select({ name: customers.name, phone: customers.phone })
             .from(customers)
             .where(eq(customers.id, existing.customerId))
             .limit(1);
           customerName = cust?.name ?? null;
+          customerPhone = cust?.phone ?? null;
         }
+        const [linkedOrder] = await db
+          .select({ orderNo: orders.orderNo, label: orders.label })
+          .from(orders)
+          .where(eq(orders.saleId, existing.id))
+          .limit(1);
         return {
           ok: true as const,
           saleId: existing.id,
           receiptNo: existing.receiptNo,
           cashierName: cashier?.name ?? "Staff",
+          cashierStaffCode: cashier?.staffCode ?? null,
+          orderNo: linkedOrder?.orderNo ?? null,
+          orderLabel: linkedOrder?.label ?? null,
           soldAt: existing.soldAt.toISOString(),
           lines: dbLines.map((l) => ({
             itemId: l.itemId,
@@ -147,6 +157,7 @@ export const salesRouter = createRouter({
           totalKobo: existing.totalKobo,
           customerId: existing.customerId,
           customerName,
+          customerPhone,
           creditKobo: existing.creditKobo,
           payments: dbPayments.map((p) => ({
             method: p.method,
@@ -340,12 +351,14 @@ export const salesRouter = createRouter({
       }
       const creditKobo = Math.max(0, shortfallKobo);
       let customerName: string | null = null;
+      let customerPhone: string | null = null;
       if (input.customerId !== undefined) {
         const [cust] = await db
           .select({
             id: customers.id,
             name: customers.name,
             active: customers.active,
+            phone: customers.phone,
           })
           .from(customers)
           .where(eq(customers.id, input.customerId))
@@ -361,6 +374,7 @@ export const salesRouter = createRouter({
           });
         }
         customerName = cust.name;
+        customerPhone = cust.phone;
       }
       const changeKobo = Math.max(0, paidKobo - totalKobo);
 
@@ -494,11 +508,23 @@ export const salesRouter = createRouter({
           entityId: result.saleId,
           detail: `Receipt ${result.receiptNo} · ${formatNaira(totalKobo)} · ${payments.map((p) => p.method).join(" + ")}`,
         });
+        let paidOrder: { orderNo: string; label: string } | null = null;
+        if (input.orderId !== undefined) {
+          const [ord] = await db
+            .select({ orderNo: orders.orderNo, label: orders.label })
+            .from(orders)
+            .where(eq(orders.id, input.orderId))
+            .limit(1);
+          paidOrder = ord ?? null;
+        }
         return {
           ok: true as const,
           saleId: result.saleId,
           receiptNo: result.receiptNo,
           cashierName: ctx.staff.name,
+          cashierStaffCode: ctx.staff.staffCode,
+          orderNo: paidOrder?.orderNo ?? null,
+          orderLabel: paidOrder?.label ?? null,
           soldAt: soldAt.toISOString(),
           lines: pricedLines,
           subtotalKobo,
@@ -506,6 +532,7 @@ export const salesRouter = createRouter({
           totalKobo,
           customerId: input.customerId ?? null,
           customerName,
+          customerPhone,
           creditKobo,
           payments: payments.map((p) => ({
             method: p.method,
@@ -678,7 +705,7 @@ export const salesRouter = createRouter({
       }
 
       const [cashier] = await db
-        .select({ name: users.name })
+        .select({ name: users.name, staffCode: users.staffCode })
         .from(users)
         .where(eq(users.id, sale.staffId))
         .limit(1);
@@ -710,20 +737,30 @@ export const salesRouter = createRouter({
         returnedByName = by?.name ?? null;
       }
       let customerName: string | null = null;
+      let customerPhone: string | null = null;
       if (sale.customerId) {
         const [cust] = await db
-          .select({ name: customers.name })
+          .select({ name: customers.name, phone: customers.phone })
           .from(customers)
           .where(eq(customers.id, sale.customerId))
           .limit(1);
         customerName = cust?.name ?? null;
+        customerPhone = cust?.phone ?? null;
       }
+      const [linkedOrder] = await db
+        .select({ orderNo: orders.orderNo, label: orders.label })
+        .from(orders)
+        .where(eq(orders.saleId, sale.id))
+        .limit(1);
 
       const paidKobo = payments.reduce((s, p) => s + p.amountKobo, 0);
       return {
         saleId: sale.id,
         receiptNo: sale.receiptNo,
         cashierName: cashier?.name ?? "Staff",
+        cashierStaffCode: cashier?.staffCode ?? null,
+        orderNo: linkedOrder?.orderNo ?? null,
+        orderLabel: linkedOrder?.label ?? null,
         soldAt: sale.soldAt.toISOString(),
         status: sale.status,
         returnedAt: sale.returnedAt ? sale.returnedAt.toISOString() : null,
@@ -731,6 +768,7 @@ export const salesRouter = createRouter({
         returnReason: sale.returnReason,
         lines: lines.map((l) => ({
           itemName: l.itemName,
+          unitPriceKobo: l.unitPriceKobo,
           quantity: l.quantity,
           modifiers: l.modifiersJson
             ? (JSON.parse(l.modifiersJson) as ModifierSnapshot[])
@@ -742,6 +780,7 @@ export const salesRouter = createRouter({
         totalKobo: sale.totalKobo,
         customerId: sale.customerId,
         customerName,
+        customerPhone,
         creditKobo: sale.creditKobo,
         payments: payments.map((p) => ({
           method: p.method,

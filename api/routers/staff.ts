@@ -48,6 +48,65 @@ function publicUser(u: User) {
   };
 }
 
+// ── Full staff profile ─────────────────────────────────────────────────────
+const dateStr = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+
+/** Optional profile fields a manager records for a staff member. */
+const staffProfileInput = {
+  phone: z.string().trim().max(40).nullish(),
+  email: z.string().trim().max(120).nullish(),
+  gender: z.enum(["male", "female", "other"]).nullish(),
+  dateOfBirth: dateStr.nullish(),
+  address: z.string().trim().max(255).nullish(),
+  stateOfOrigin: z.string().trim().max(60).nullish(),
+  employmentDate: dateStr.nullish(),
+  guarantorName: z.string().trim().max(120).nullish(),
+  guarantorPhone: z.string().trim().max(40).nullish(),
+  guarantorAddress: z.string().trim().max(255).nullish(),
+  nextOfKinName: z.string().trim().max(120).nullish(),
+  nextOfKinPhone: z.string().trim().max(40).nullish(),
+  bankName: z.string().trim().max(80).nullish(),
+  bankAccountNumber: z.string().trim().max(20).nullish(),
+} as const;
+
+const PROFILE_FIELD_NAMES = Object.keys(staffProfileInput) as Array<
+  keyof typeof staffProfileInput
+>;
+
+/** "" → null so optional text fields clear cleanly. */
+function profileValues(input: Record<string, unknown>) {
+  const out: Record<string, string | null> = {};
+  for (const key of PROFILE_FIELD_NAMES) {
+    const v = input[key];
+    if (v === undefined) continue;
+    out[key] = typeof v === "string" && v.trim() === "" ? null : (v as string | null);
+  }
+  return out;
+}
+
+/** publicUser + the full profile — manager-facing staff list/edit. */
+function fullUser(u: User) {
+  return {
+    ...publicUser(u),
+    phone: u.phone,
+    email: u.email,
+    gender: u.gender,
+    dateOfBirth: u.dateOfBirth,
+    address: u.address,
+    stateOfOrigin: u.stateOfOrigin,
+    employmentDate: u.employmentDate,
+    guarantorName: u.guarantorName,
+    guarantorPhone: u.guarantorPhone,
+    guarantorAddress: u.guarantorAddress,
+    nextOfKinName: u.nextOfKinName,
+    nextOfKinPhone: u.nextOfKinPhone,
+    bankName: u.bankName,
+    bankAccountNumber: u.bankAccountNumber,
+  };
+}
+
 const manageProcedure = permProcedure("staff", "manage");
 const viewProcedure = permProcedure("staff", "view");
 
@@ -58,7 +117,7 @@ export const staffRouter = createRouter({
     // Show accounts at or below the actor's own level.
     const max =
       ctx.staff.role === "superadmin" ? 99 : ROLE_LEVEL[ctx.staff.role];
-    return rows.filter((r) => ROLE_LEVEL[r.role] <= max).map(publicUser);
+    return rows.filter((r) => ROLE_LEVEL[r.role] <= max).map(fullUser);
   }),
 
   manageableRoles: viewProcedure.query(({ ctx }) =>
@@ -93,6 +152,7 @@ export const staffRouter = createRouter({
           .regex(/^[A-Za-z0-9-]+$/),
         role: z.enum(STAFF_ROLES),
         secret: z.string().min(4).max(60),
+        ...staffProfileInput,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -119,6 +179,7 @@ export const staffRouter = createRouter({
         staffCode: input.staffCode,
         role: input.role,
         secretHash: bcrypt.hashSync(input.secret, 10),
+        ...profileValues(input),
       });
       void logEvent(db, {
         actor: ctx.staff,
@@ -127,6 +188,90 @@ export const staffRouter = createRouter({
         detail: `${input.name} (${input.staffCode}) added as ${input.role}`,
       });
       return { ok: true };
+    }),
+
+  /**
+   * Edit an account's core identity + full profile (manager+).
+   * Staff edit only their own username/phone via auth.updateProfile — every
+   * other field is recorded here by management.
+   */
+  updateProfile: manageProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        name: z.string().trim().min(2).max(120).optional(),
+        username: z
+          .string()
+          .trim()
+          .min(3)
+          .max(60)
+          .regex(/^[a-zA-Z0-9._-]+$/, "Letters, numbers, dot, dash, underscore only")
+          .optional(),
+        staffCode: z
+          .string()
+          .trim()
+          .min(2)
+          .max(20)
+          .regex(/^[A-Za-z0-9-]+$/)
+          .optional(),
+        role: z.enum(STAFF_ROLES).optional(),
+        ...staffProfileInput,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const target = await db.query.users.findFirst({
+        where: (t) => eq(t.id, input.id),
+      });
+      if (!target) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
+      }
+      assertCanManage(ctx.staff.role, target.role);
+      if (input.role) assertCanManage(ctx.staff.role, input.role);
+      if (input.id === ctx.staff.sub && input.role && input.role !== target.role) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "You cannot change your own role",
+        });
+      }
+
+      if (input.username || input.staffCode) {
+        const clash = await db.query.users.findFirst({
+          where: (t, { eq: e, or: o }) =>
+            o(
+              input.username ? e(t.username, input.username) : undefined,
+              input.staffCode ? e(t.staffCode, input.staffCode) : undefined,
+            ),
+        });
+        if (clash && clash.id !== input.id) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              clash.username === input.username
+                ? "That username is already taken"
+                : "That staff code is already taken",
+          });
+        }
+      }
+
+      await db
+        .update(users)
+        .set({
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.username !== undefined ? { username: input.username } : {}),
+          ...(input.staffCode !== undefined ? { staffCode: input.staffCode } : {}),
+          ...(input.role !== undefined ? { role: input.role } : {}),
+          ...profileValues(input),
+        })
+        .where(eq(users.id, input.id));
+      void logEvent(db, {
+        actor: ctx.staff,
+        action: "staff.update_profile",
+        entityType: "staff",
+        entityId: target.id,
+        detail: `${target.name} (${target.staffCode}) profile updated`,
+      });
+      return { ok: true as const };
     }),
 
   setActive: manageProcedure

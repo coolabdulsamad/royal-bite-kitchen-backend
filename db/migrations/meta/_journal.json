@@ -120,6 +120,13 @@
       "when": 1795725205306,
       "tag": "0016_jazzy_mentallo",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1795732873369,
+      "tag": "0017_panoramic_black_panther",
+      "breakpoints": true
     }
   ]
 }

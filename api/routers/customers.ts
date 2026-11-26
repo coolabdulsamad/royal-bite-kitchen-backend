@@ -26,6 +26,41 @@ function isDuplicate(err: unknown): boolean {
   return false;
 }
 
+// ── Full customer profile ──────────────────────────────────────────────────
+const dateStr = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+
+/** Optional profile fields recorded for a customer. */
+const customerProfileInput = {
+  email: z.string().trim().max(120).nullish(),
+  gender: z.enum(["male", "female", "other"]).nullish(),
+  dateOfBirth: dateStr.nullish(),
+  address: z.string().trim().max(255).nullish(),
+  city: z.string().trim().max(60).nullish(),
+  state: z.string().trim().max(60).nullish(),
+  alternatePhone: z.string().trim().max(40).nullish(),
+  occupation: z.string().trim().max(80).nullish(),
+  guarantorName: z.string().trim().max(120).nullish(),
+  guarantorPhone: z.string().trim().max(40).nullish(),
+  referralSource: z.string().trim().max(80).nullish(),
+} as const;
+
+const PROFILE_FIELD_NAMES = Object.keys(customerProfileInput) as Array<
+  keyof typeof customerProfileInput
+>;
+
+/** "" → null so optional text fields clear cleanly. */
+function profileValues(input: Record<string, unknown>) {
+  const out: Record<string, string | null> = {};
+  for (const key of PROFILE_FIELD_NAMES) {
+    const v = input[key];
+    if (v === undefined) continue;
+    out[key] = typeof v === "string" && v.trim() === "" ? null : (v as string | null);
+  }
+  return out;
+}
+
 /**
  * Customers & credit tabs. Any staff member can look customers up, add a new
  * one mid-checkout and record a repayment (money in); editing, deactivating
@@ -88,6 +123,7 @@ export const customersRouter = createRouter({
         name: z.string().trim().min(2).max(120),
         phone: z.string().trim().min(5).max(40).optional(),
         notes: z.string().trim().max(255).optional(),
+        ...customerProfileInput,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -99,6 +135,7 @@ export const customersRouter = createRouter({
             name: input.name,
             phone: input.phone || null,
             notes: input.notes || null,
+            ...profileValues(input),
             createdById: ctx.staff.sub,
           })
           .$returningId();
@@ -129,6 +166,7 @@ export const customersRouter = createRouter({
         phone: z.string().trim().min(5).max(40).nullish(),
         notes: z.string().trim().max(255).nullish(),
         active: z.boolean().optional(),
+        ...customerProfileInput,
       }),
     )
     .mutation(async ({ input }) => {
@@ -141,6 +179,7 @@ export const customersRouter = createRouter({
             ...(input.phone !== undefined ? { phone: input.phone || null } : {}),
             ...(input.notes !== undefined ? { notes: input.notes || null } : {}),
             ...(input.active !== undefined ? { active: input.active } : {}),
+            ...profileValues(input),
           })
           .where(eq(customers.id, input.id));
         if (result.affectedRows === 0) {
@@ -216,6 +255,17 @@ export const customersRouter = createRouter({
           name: customer.name,
           phone: customer.phone,
           notes: customer.notes,
+          email: customer.email,
+          gender: customer.gender,
+          dateOfBirth: customer.dateOfBirth,
+          address: customer.address,
+          city: customer.city,
+          state: customer.state,
+          alternatePhone: customer.alternatePhone,
+          occupation: customer.occupation,
+          guarantorName: customer.guarantorName,
+          guarantorPhone: customer.guarantorPhone,
+          referralSource: customer.referralSource,
           creditBalanceKobo: customer.creditBalanceKobo,
           active: customer.active,
           createdAt: customer.createdAt.toISOString(),

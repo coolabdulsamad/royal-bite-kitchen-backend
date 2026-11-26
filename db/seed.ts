@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { eq } from "drizzle-orm";
 import { getDb } from "../api/queries/connection";
 import {
   categories,
@@ -6,6 +7,7 @@ import {
   menuItems,
   modifierGroups,
   modifierOptions,
+  settings,
   users,
 } from "./schema";
 
@@ -181,6 +183,28 @@ async function seed() {
       }
     }
     console.log(`+ category "${cat.name}" (${cat.items.length} items)`);
+  }
+
+  // ------------------------------------------------- receipt/business info ---
+  // Printed at the top of every receipt — seed sensible defaults when unset.
+  console.log("Seeding business settings...");
+  const businessDefaults: Array<[string, string]> = [
+    ["business_address", "12 Adeola Odeku Street, Victoria Island, Lagos"],
+    ["business_phone", "0800 000 1234"],
+  ];
+  for (const [key, value] of businessDefaults) {
+    const [row] = await db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, key))
+      .limit(1);
+    if (!row) {
+      await db.insert(settings).values({ key, value });
+      console.log(`+ setting ${key}`);
+    } else if (row.value.trim() === "") {
+      await db.update(settings).set({ value }).where(eq(settings.key, key));
+      console.log(`~ setting ${key} (was empty)`);
+    }
   }
 
   console.log("Done.");

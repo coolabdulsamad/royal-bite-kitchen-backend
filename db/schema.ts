@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  date,
   index,
   int,
   mysqlEnum,
@@ -25,6 +26,24 @@ export const users = mysqlTable("users", {
   secretHash: varchar("secret_hash", { length: 120 }).notNull(),
   role: mysqlEnum("role", STAFF_ROLES).notNull().default("sales"),
   active: boolean("active").notNull().default(true),
+  // ── Full staff profile (all optional — filled in by management) ──
+  phone: varchar("phone", { length: 40 }),
+  email: varchar("email", { length: 120 }),
+  /** "male" | "female" | "other" (plain varchar — no enum migration pain) */
+  gender: varchar("gender", { length: 10 }),
+  /** YYYY-MM-DD */
+  dateOfBirth: date("date_of_birth", { mode: "string" }),
+  address: varchar("address", { length: 255 }),
+  stateOfOrigin: varchar("state_of_origin", { length: 60 }),
+  /** YYYY-MM-DD — first day on the job */
+  employmentDate: date("employment_date", { mode: "string" }),
+  guarantorName: varchar("guarantor_name", { length: 120 }),
+  guarantorPhone: varchar("guarantor_phone", { length: 40 }),
+  guarantorAddress: varchar("guarantor_address", { length: 255 }),
+  nextOfKinName: varchar("next_of_kin_name", { length: 120 }),
+  nextOfKinPhone: varchar("next_of_kin_phone", { length: 40 }),
+  bankName: varchar("bank_name", { length: 80 }),
+  bankAccountNumber: varchar("bank_account_number", { length: 20 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 });
@@ -155,6 +174,21 @@ export const customers = mysqlTable("customers", {
   /** Optional but unique when present — MySQL allows multiple NULLs. */
   phone: varchar("phone", { length: 40 }).unique(),
   notes: varchar("notes", { length: 255 }),
+  // ── Full customer profile (all optional) ──
+  email: varchar("email", { length: 120 }),
+  /** "male" | "female" | "other" */
+  gender: varchar("gender", { length: 10 }),
+  /** YYYY-MM-DD */
+  dateOfBirth: date("date_of_birth", { mode: "string" }),
+  address: varchar("address", { length: 255 }),
+  city: varchar("city", { length: 60 }),
+  state: varchar("state", { length: 60 }),
+  alternatePhone: varchar("alternate_phone", { length: 40 }),
+  occupation: varchar("occupation", { length: 80 }),
+  guarantorName: varchar("guarantor_name", { length: 120 }),
+  guarantorPhone: varchar("guarantor_phone", { length: 40 }),
+  /** How they found us — walk-in, referral, social media, … */
+  referralSource: varchar("referral_source", { length: 80 }),
   /** Outstanding credit in kobo (goods taken, not yet paid for). */
   creditBalanceKobo: int("credit_balance_kobo").notNull().default(0),
   active: boolean("active").notNull().default(true),
