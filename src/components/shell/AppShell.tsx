@@ -74,7 +74,7 @@ function SidebarFooter() {
   return (
     <div className="border-t border-royal-line px-5 py-3">
       <p className="text-[10px] tracking-wide text-royal-dim/60">
-        v22 · Phase 4 — settings live
+        v23 · Royal Bite Kitchen POS
       </p>
     </div>
   );
