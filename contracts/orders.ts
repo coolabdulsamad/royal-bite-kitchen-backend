@@ -1,6 +1,14 @@
 /**
  * Kitchen-order status model — shared by the server router, the orders board
  * and the kitchen ticket printer so every surface agrees on the workflow.
+ *
+ * Two independent tracks run side by side:
+ *   kitchen  placed → preparing → ready → served
+ *   payment  unpaid (saleId null) → paid (saleId set)
+ * "completed" means BOTH are done — paid AND served. Paying a ticket the
+ * kitchen is still working on keeps it on the board (Paid badge); serving an
+ * already-paid ticket closes it out. This matches dine-in reality: guests
+ * often pay after eating, and some pay up-front then wait for the food.
  */
 export const ORDER_STATUSES = [
   "placed",
@@ -17,7 +25,7 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   preparing: "Preparing",
   ready: "Ready",
   served: "Served",
-  completed: "Paid",
+  completed: "Done",
   cancelled: "Cancelled",
 };
 

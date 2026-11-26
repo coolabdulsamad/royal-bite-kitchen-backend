@@ -40,7 +40,7 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: "preparing", label: "Preparing" },
   { key: "ready", label: "Ready" },
   { key: "served", label: "Served" },
-  { key: "completed", label: "Paid" },
+  { key: "completed", label: "Done" },
   { key: "cancelled", label: "Cancelled" },
   { key: "all", label: "All" },
 ];
@@ -423,6 +423,8 @@ function TicketCard({
   onCancel: () => void;
 }) {
   const active = (ACTIVE_ORDER_STATUSES as readonly string[]).includes(order.status);
+  /** Bill settled, kitchen possibly still working — no second charge. */
+  const paid = order.saleId !== null;
   const min = elapsedMinutes(order.createdAt, now);
   const elapsedTone =
     min >= ORDER_ELAPSED_LATE_MIN
@@ -453,6 +455,19 @@ function TicketCard({
               }`}
             >
               {ORDER_SOURCE_LABEL[order.source]}
+            </span>
+          )}
+          {paid && active && (
+            <span
+              data-testid="order-paid-badge"
+              title={
+                order.receiptNo
+                  ? `Paid · receipt ${order.receiptNo} — stays here until served`
+                  : "Paid — stays here until served"
+              }
+              className="border border-emerald-400/50 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-300"
+            >
+              Paid
             </span>
           )}
         </p>
@@ -558,7 +573,7 @@ function TicketCard({
             {next.action}
           </button>
         )}
-        {active && (
+        {active && !paid && (
           <button
             type="button"
             onClick={onPay}
@@ -577,7 +592,7 @@ function TicketCard({
         >
           <Printer className="h-3.5 w-3.5" strokeWidth={1.75} />
         </button>
-        {isManager && order.status !== "completed" && order.status !== "cancelled" && (
+        {isManager && !paid && order.status !== "completed" && order.status !== "cancelled" && (
           <button
             type="button"
             onClick={onCancel}

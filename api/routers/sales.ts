@@ -17,6 +17,7 @@ import {
 import { nairaToKobo, formatNaira } from "@contracts/money";
 import { logEvent } from "../audit";
 import { DISCOUNT_LIMIT_PERCENT } from "@contracts/payments";
+import type { OrderStatus } from "@contracts/orders";
 import { ROLE_LEVEL } from "@contracts/roles";
 import type { StaffRole } from "@contracts/roles";
 import { priceOrderLines, type ModifierSnapshot } from "../pricing";
@@ -455,11 +456,16 @@ export const salesRouter = createRouter({
           // Kitchen order being paid: claim it atomically. If two tills race
           // to pay the same order, exactly one wins — the loser's whole sale
           // rolls back instead of double-charging the table.
+          //
+          // Payment settles the BILL, not the ticket: a dine-in order the
+          // kitchen is still working on stays on the board (saleId set, Paid
+          // badge) until it's served. Only an already-served order closes
+          // out the moment it's paid.
           if (input.orderId !== undefined) {
             const [orderUpdate] = await tx
               .update(orders)
               .set({
-                status: "completed",
+                status: sql<OrderStatus>`IF(${orders.status} = 'served', 'completed', ${orders.status})`,
                 saleId: saleRow.id,
                 updatedAt: new Date(),
               })

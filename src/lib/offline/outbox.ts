@@ -35,7 +35,8 @@ export interface OfflineSalePayload {
   }>;
   saleDate?: string;
   clientRef: string;
-  /** Set when paying a kitchen order — the sync marks it completed. */
+  /** Set when paying a kitchen order — the sync links it to the sale
+   *  (the ticket stays on the board until served). */
   orderId?: number;
   /** Customer attached to the sale (credit sales are online-only, but a
    *  fully-paid sale can still carry one through the queue). */

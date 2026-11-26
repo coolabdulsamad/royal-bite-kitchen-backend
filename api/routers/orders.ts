@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray, notInArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notInArray, isNull, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { authedProcedure, roleProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
@@ -198,9 +198,16 @@ export const ordersRouter = createRouter({
         ready: ["placed", "preparing"],
         served: ["placed", "preparing", "ready"],
       };
+      // Serving a ticket the customer ALREADY paid closes it out — the meal
+      // is done and the money is in. An unpaid served order stays on the
+      // board (dine-in guests often pay after eating).
+      const target =
+        input.to === "served"
+          ? sql<OrderStatus>`IF(${orders.saleId} IS NULL, 'served', 'completed')`
+          : input.to;
       const [result] = await db
         .update(orders)
-        .set({ status: input.to, updatedAt: new Date() })
+        .set({ status: target, updatedAt: new Date() })
         .where(
           and(
             eq(orders.id, input.orderId),
@@ -230,7 +237,13 @@ export const ordersRouter = createRouter({
               : "This ticket can't move that way",
         });
       }
-      return { ok: true as const, orderId: input.orderId, status: input.to };
+      // Read back the real status — serving a paid ticket lands on completed.
+      const [after] = await db
+        .select({ status: orders.status })
+        .from(orders)
+        .where(eq(orders.id, input.orderId))
+        .limit(1);
+      return { ok: true as const, orderId: input.orderId, status: after?.status ?? input.to };
     }),
 
   /**
@@ -260,7 +273,7 @@ export const ordersRouter = createRouter({
           message: "This order was already cancelled",
         });
       }
-      if (order.status === "completed") {
+      if (order.status === "completed" || order.saleId !== null) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
@@ -280,6 +293,7 @@ export const ordersRouter = createRouter({
           and(
             eq(orders.id, order.id),
             notInArray(orders.status, ["completed", "cancelled"]),
+            isNull(orders.saleId),
           ),
         );
       if (result.affectedRows === 0) {
