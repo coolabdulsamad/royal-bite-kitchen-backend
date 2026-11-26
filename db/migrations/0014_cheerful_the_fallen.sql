@@ -1,0 +1,1 @@
+CREATE INDEX `sio_order_idx` ON `settlement_invoice_orders` (`order_id`);
