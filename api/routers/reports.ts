@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import {
   categories,
@@ -43,7 +43,7 @@ export function salesInRange(fromStart: Date, toEnd: Date) {
  * [from, to] business-date range (inclusive both ends, server-local days).
  */
 export const reportsRouter = createRouter({
-  overview: roleProcedure("manager").input(rangeInput).query(async ({ input }) => {
+  overview: permProcedure("reports", "view").input(rangeInput).query(async ({ input }) => {
     const db = getDb();
     const { fromStart, toEnd } = rangeBounds(input);
 
@@ -99,7 +99,7 @@ export const reportsRouter = createRouter({
     };
   }),
 
-  daily: roleProcedure("manager").input(rangeInput).query(async ({ input }) => {
+  daily: permProcedure("reports", "view").input(rangeInput).query(async ({ input }) => {
     const db = getDb();
     const { fromStart, toEnd } = rangeBounds(input);
     const day = sql<string>`date_format(${sales.soldAt}, '%Y-%m-%d')`.as("day");
@@ -122,7 +122,7 @@ export const reportsRouter = createRouter({
     };
   }),
 
-  topItems: roleProcedure("manager")
+  topItems: permProcedure("reports", "view")
     .input(rangeInput.extend({ limit: z.number().int().min(1).max(50).default(10) }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -148,7 +148,7 @@ export const reportsRouter = createRouter({
       };
     }),
 
-  paymentMethods: roleProcedure("manager").input(rangeInput).query(async ({ input }) => {
+  paymentMethods: permProcedure("reports", "view").input(rangeInput).query(async ({ input }) => {
     const db = getDb();
     const { fromStart, toEnd } = rangeBounds(input);
     const rows = await db
@@ -171,7 +171,7 @@ export const reportsRouter = createRouter({
     };
   }),
 
-  categories: roleProcedure("manager").input(rangeInput).query(async ({ input }) => {
+  categories: permProcedure("reports", "view").input(rangeInput).query(async ({ input }) => {
     const db = getDb();
     const { fromStart, toEnd } = rangeBounds(input);
     const rows = await db
@@ -196,7 +196,7 @@ export const reportsRouter = createRouter({
     };
   }),
 
-  staff: roleProcedure("manager").input(rangeInput).query(async ({ input }) => {
+  staff: permProcedure("reports", "view").input(rangeInput).query(async ({ input }) => {
     const db = getDb();
     const { fromStart, toEnd } = rangeBounds(input);
     const rows = await db
@@ -221,7 +221,7 @@ export const reportsRouter = createRouter({
     };
   }),
 
-  hours: roleProcedure("manager").input(rangeInput).query(async ({ input }) => {
+  hours: permProcedure("reports", "view").input(rangeInput).query(async ({ input }) => {
     const db = getDb();
     const { fromStart, toEnd } = rangeBounds(input);
     const hour = sql<number>`hour(${sales.soldAt})`.as("hour");
@@ -244,7 +244,7 @@ export const reportsRouter = createRouter({
     };
   }),
 
-  expenseCategories: roleProcedure("manager").input(rangeInput).query(async ({ input }) => {
+  expenseCategories: permProcedure("reports", "view").input(rangeInput).query(async ({ input }) => {
     const db = getDb();
     const { fromStart, toEnd } = rangeBounds(input);
     const rows = await db

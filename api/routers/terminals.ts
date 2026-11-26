@@ -2,11 +2,11 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { authedProcedure, roleProcedure } from "../auth/guards";
+import { authedProcedure, permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import { bankPosTerminals, salePayments, sales } from "@db/schema";
-import { ROLE_LEVEL } from "@contracts/roles";
+import { roleHas } from "../permissions";
 import type { StaffRole } from "@contracts/roles";
 
 /**
@@ -16,8 +16,12 @@ import type { StaffRole } from "@contracts/roles";
 export const terminalsRouter = createRouter({
   list: authedProcedure.query(async ({ ctx }) => {
     const db = getDb();
-    const isManager =
-      ROLE_LEVEL[ctx.staff.role as StaffRole] >= ROLE_LEVEL.manager;
+    const isManager = await roleHas(
+      db,
+      ctx.staff.role as StaffRole,
+      "terminals",
+      "view",
+    );
     const rows = await db
       .select({
         id: bankPosTerminals.id,
@@ -35,7 +39,7 @@ export const terminalsRouter = createRouter({
     return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
   }),
 
-  create: roleProcedure("manager")
+  create: permProcedure("terminals", "manage")
     .input(
       z.object({
         name: z.string().trim().min(2).max(64),
@@ -66,7 +70,7 @@ export const terminalsRouter = createRouter({
       return { ok: true as const, id: row.id };
     }),
 
-  update: roleProcedure("manager")
+  update: permProcedure("terminals", "manage")
     .input(
       z.object({
         id: z.number().int().positive(),
@@ -110,7 +114,7 @@ export const terminalsRouter = createRouter({
    * "unassigned" bucket catches bank_pos payments taken without a terminal
    * pick (older sales, or terminals not yet registered).
    */
-  todayStats: roleProcedure("manager").query(async () => {
+  todayStats: permProcedure("terminals", "view").query(async () => {
     const db = getDb();
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);

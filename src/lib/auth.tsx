@@ -10,6 +10,7 @@ import {
 import { trpc } from "@/providers/trpc";
 import { getCachedUser, getToken, saveCachedUser, saveToken } from "./apiAuth";
 import type { StaffRole } from "@contracts/roles";
+import type { PermissionMap } from "@contracts/permissions";
 
 export interface SessionUser {
   id: number;
@@ -17,6 +18,8 @@ export interface SessionUser {
   name: string;
   username: string;
   role: StaffRole;
+  /** Effective permission map from auth.me / login (absent on stale cache). */
+  permissions?: PermissionMap;
 }
 
 export type AuthStatus = "anon" | "loading" | "authed";

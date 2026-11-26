@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { Link, Navigate, useLocation } from "react-router";
 import { ShieldAlert } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { ROLE_LABEL, roleAtLeast, type StaffRole } from "@contracts/roles";
+import { usePermissionMap } from "@/lib/perms";
+import { navItemAllowed, homePathFor, type NavItem } from "@/lib/nav";
 
 function FullScreenLoader() {
   return (
@@ -17,7 +18,9 @@ function FullScreenLoader() {
   );
 }
 
-function NoAccess({ role, minRole }: { role: StaffRole; minRole: StaffRole }) {
+function NoAccess({ item }: { item: NavItem }) {
+  const map = usePermissionMap();
+  const home = homePathFor(map);
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
       <ShieldAlert className="h-10 w-10 text-royal-accent" strokeWidth={1.5} />
@@ -25,16 +28,15 @@ function NoAccess({ role, minRole }: { role: StaffRole; minRole: StaffRole }) {
         Restricted area
       </h2>
       <p className="mt-3 max-w-sm text-sm leading-6 text-royal-dim">
-        This section needs the{" "}
-        <span className="text-royal-cream">{ROLE_LABEL[minRole]}</span> role or
-        higher. You are signed in as{" "}
-        <span className="text-royal-cream">{ROLE_LABEL[role]}</span>.
+        Your role does not have access to{" "}
+        <span className="text-royal-cream">{item.title}</span>. An admin can
+        grant it on the Permissions page.
       </p>
       <Link
-        to="/pos"
+        to={home}
         className="mt-8 rounded-full border border-royal-accent px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.2em] text-royal-accent transition-colors hover:bg-royal-accent hover:text-royal-bg"
       >
-        Back to New Sale
+        Back to your area
       </Link>
     </div>
   );
@@ -42,20 +44,22 @@ function NoAccess({ role, minRole }: { role: StaffRole; minRole: StaffRole }) {
 
 export function RequireAuth({
   children,
-  minRole,
+  item,
 }: {
   children: ReactNode;
-  minRole?: StaffRole;
+  /** The nav item this route belongs to — its perm gates access. */
+  item?: NavItem;
 }) {
   const { status, user } = useAuth();
+  const map = usePermissionMap();
   const location = useLocation();
 
   if (status === "loading") return <FullScreenLoader />;
   if (status === "anon" || !user) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
-  if (minRole && !roleAtLeast(user.role, minRole)) {
-    return <NoAccess role={user.role} minRole={minRole} />;
+  if (item && !navItemAllowed(item, map)) {
+    return <NoAccess item={item} />;
   }
   return <>{children}</>;
 }

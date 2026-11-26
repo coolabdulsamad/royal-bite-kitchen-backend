@@ -29,7 +29,11 @@ const ACTION_LABEL: Record<string, string> = {
   "menu.category": "Menu category changed",
   "partner.create": "Partner connected",
   "partner.update": "Partner updated",
+  "settlement.create": "Settlement invoice created",
+  "settlement.paid": "Settlement paid",
+  "settlement.cancel": "Settlement cancelled",
   "settings.update": "Settings updated",
+  "permissions.update": "Permissions changed",
 };
 
 const inputCls =

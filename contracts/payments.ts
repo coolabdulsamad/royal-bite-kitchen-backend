@@ -17,6 +17,8 @@ export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
 export const DISCOUNT_LIMIT_PERCENT: Record<StaffRole, number> = {
   sales: 5,
   "ordering-sales": 5,
+  accountant: 0, // money roles never sell, so they never discount
+  auditor: 0,
   manager: 20,
   admin: 100,
   superadmin: 100,

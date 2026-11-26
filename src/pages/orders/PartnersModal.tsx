@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Copy, KeyRound, Plus, Power, RefreshCw, X } from "lucide-react";
 import { trpc } from "@/providers/trpc";
+import { usePerms } from "@/lib/perms";
 import { PARTNER_LABEL, type PartnerProvider } from "@contracts/partners";
 
 /**
@@ -10,11 +11,15 @@ import { PARTNER_LABEL, type PartnerProvider } from "@contracts/partners";
  * rotate — it is never returned by the list endpoint.
  */
 export function PartnersModal({ onClose }: { onClose: () => void }) {
+  const { has } = usePerms();
+  const canManage = has("partners", "manage");
   const utils = trpc.useUtils();
   const list = trpc.partners.list.useQuery();
   const [provider, setProvider] = useState<PartnerProvider>("glovo");
   const [name, setName] = useState("");
   const [storeRef, setStoreRef] = useState("");
+  /** New-connection commission, as a percent string ("20" = 20%). */
+  const [commissionPct, setCommissionPct] = useState("0");
   const [error, setError] = useState<string | null>(null);
   /** Freshly minted token — shown once, then gone forever. */
   const [reveal, setReveal] = useState<{ name: string; token: string } | null>(null);
@@ -25,6 +30,7 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
       setReveal({ name: r.name, token: r.token });
       setName("");
       setStoreRef("");
+      setCommissionPct("0");
       setError(null);
       utils.partners.list.invalidate();
     },
@@ -84,6 +90,7 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* New connection */}
+        {canManage && (
         <div className="mt-5 border border-royal-line p-4">
           <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-royal-dim">
             New connection
@@ -117,6 +124,20 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
               maxLength={64}
               className="w-36 border border-royal-line bg-transparent px-3 py-1.5 text-sm text-royal-cream placeholder:text-royal-dim/50 focus:border-royal-accent focus:outline-none"
             />
+            <label className="flex items-center gap-1.5 border border-royal-line px-3 py-1.5 text-xs text-royal-dim">
+              Commission
+              <input
+                data-testid="partner-commission"
+                type="number"
+                min={0}
+                max={50}
+                step={0.5}
+                value={commissionPct}
+                onChange={(e) => setCommissionPct(e.target.value)}
+                className="w-16 bg-transparent text-royal-cream focus:outline-none"
+              />
+              %
+            </label>
             <button
               type="button"
               disabled={create.isPending || name.trim().length < 2}
@@ -125,6 +146,7 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
                   provider,
                   name: name.trim(),
                   storeRef: storeRef.trim() || undefined,
+                  commissionBps: Math.round((Number(commissionPct) || 0) * 100),
                 })
               }
               className="flex items-center gap-1.5 rounded-full border border-royal-accent bg-royal-accent px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-royal-bg transition-colors hover:bg-royal-accent/85 disabled:opacity-40"
@@ -134,6 +156,7 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         </div>
+        )}
 
         {/* One-time token reveal */}
         {reveal && (
@@ -210,6 +233,18 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
                   ? `Last order ${new Date(c.lastOrderAt).toLocaleString("en-NG")}`
                   : "No orders received yet"}
               </p>
+              {canManage ? (
+                <CommissionEditor
+                  connectionId={c.id}
+                  commissionBps={c.commissionBps}
+                  pending={update.isPending}
+                  onSave={(bps) => update.mutate({ id: c.id, commissionBps: bps })}
+                />
+              ) : (
+                <p className="mt-1 text-[11px] text-royal-dim">
+                  Commission {(c.commissionBps / 100).toFixed(1)}%
+                </p>
+              )}
               <div className="mt-2 flex items-center gap-2">
                 <code className="flex-1 select-all break-all border border-royal-line bg-royal-surface/60 px-3 py-1.5 text-[11px] text-royal-dim">
                   {webhookUrl(c.provider)}
@@ -226,6 +261,7 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
                     <Copy className="h-3.5 w-3.5" strokeWidth={1.75} />
                   )}
                 </button>
+                {canManage && (
                 <button
                   type="button"
                   title={c.active ? "Disable connection" : "Enable connection"}
@@ -239,6 +275,8 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
                 >
                   <Power className="h-3.5 w-3.5" strokeWidth={1.75} />
                 </button>
+                )}
+                {canManage && (
                 <button
                   type="button"
                   title="Rotate token (old token stops working)"
@@ -252,6 +290,7 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
                     <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
                   )}
                 </button>
+                )}
               </div>
             </div>
           ))}
@@ -266,5 +305,55 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * Inline commission-rate editor — the partner's cut in percent, converted to
+ * basis points for the API (20% → 2000). Saves on Enter/blur when changed.
+ */
+function CommissionEditor({
+  connectionId,
+  commissionBps,
+  pending,
+  onSave,
+}: {
+  connectionId: number;
+  commissionBps: number;
+  pending: boolean;
+  onSave: (bps: number) => void;
+}) {
+  const [value, setValue] = useState(String(commissionBps / 100));
+  const dirty = Math.round((Number(value) || 0) * 100) !== commissionBps;
+
+  function save() {
+    const pct = Number(value);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 50) return;
+    const bps = Math.round(pct * 100);
+    if (bps !== commissionBps) onSave(bps);
+  }
+
+  return (
+    <p className="mt-2 flex items-center gap-1.5 text-xs text-royal-dim">
+      Partner commission
+      <input
+        data-testid={`commission-input-${connectionId}`}
+        type="number"
+        min={0}
+        max={50}
+        step={0.5}
+        value={value}
+        disabled={pending}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        className="w-16 border border-royal-line bg-transparent px-1.5 py-0.5 text-center text-royal-cream focus:border-royal-accent focus:outline-none disabled:opacity-40"
+      />
+      %
+      {dirty && <span className="text-royal-accent">· Enter to save</span>}
+      <span className="text-royal-dim/60">— deducted before each settlement</span>
+    </p>
   );
 }

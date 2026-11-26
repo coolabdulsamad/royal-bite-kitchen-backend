@@ -2,6 +2,9 @@ import { TRPCError } from "@trpc/server";
 import { publicQuery } from "../middleware";
 import { verifyStaffToken, type StaffTokenPayload } from "./jwt";
 import { ROLE_LEVEL, type StaffRole } from "@contracts/roles";
+import type { DomainKey, PermLevel } from "@contracts/permissions";
+import { getDb } from "../queries/connection";
+import { roleHas } from "../permissions";
 import type { TrpcContext } from "../context";
 
 function extractStaff(ctx: TrpcContext): StaffTokenPayload {
@@ -33,6 +36,26 @@ export function roleProcedure(minRole: StaffRole) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "Your role is not allowed to do this",
+      });
+    }
+    return next({ ctx: { ...ctx, staff } });
+  });
+}
+
+/**
+ * Requires the caller's role to hold `need` (view/manage) in `domain` under
+ * the effective permission matrix. Injects ctx.staff. This is the standard
+ * gate for every domain-protected endpoint.
+ */
+export function permProcedure(domain: DomainKey, need: Exclude<PermLevel, "none">) {
+  return publicQuery.use(async ({ ctx, next }) => {
+    const staff = extractStaff(ctx);
+    const db = getDb();
+    const allowed = await roleHas(db, staff.role as StaffRole, domain, need);
+    if (!allowed) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: `Your role does not have ${need} access to ${domain} — ask an admin to adjust the permission matrix`,
       });
     }
     return next({ ctx: { ...ctx, staff } });

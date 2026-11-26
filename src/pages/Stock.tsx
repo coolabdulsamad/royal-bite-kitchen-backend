@@ -14,10 +14,9 @@ import {
   X,
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
-import { useAuth } from "@/lib/auth";
 import { formatNaira } from "@contracts/money";
 import { formatQty, STOCK_MOVEMENT_LABEL } from "@contracts/stock";
-import { roleAtLeast } from "@contracts/roles";
+import { usePerms } from "@/lib/perms";
 
 const inputCls =
   "mt-2 w-full border-b border-royal-line bg-transparent py-2.5 text-sm text-royal-cream placeholder:text-royal-dim/50 transition-colors focus:border-royal-accent focus:outline-none";
@@ -43,9 +42,9 @@ function fmtDate(iso: string) {
 }
 
 export default function StockPage() {
-  const { user } = useAuth();
   const utils = trpc.useUtils();
-  const isManager = user ? roleAtLeast(user.role, "manager") : false;
+  const { has } = usePerms();
+  const canManage = has("stock", "manage");
 
   const [search, setSearch] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
@@ -54,7 +53,7 @@ export default function StockPage() {
   const list = trpc.stock.list.useQuery({
     search: search || undefined,
     lowOnly,
-    includeInactive: isManager,
+    includeInactive: canManage,
   });
 
   const [showCreate, setShowCreate] = useState(false);
@@ -110,7 +109,7 @@ export default function StockPage() {
             </p>
           )}
         </div>
-        {isManager && (
+        {canManage && (
           <button
             type="button"
             onClick={() => setShowCreate((v) => !v)}
@@ -129,7 +128,7 @@ export default function StockPage() {
       )}
 
       {/* Create form (manager+) */}
-      {showCreate && isManager && (
+      {showCreate && canManage && (
         <form onSubmit={handleCreate} className="border border-royal-line bg-royal-panel p-6">
           <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-royal-accent">
             Add a stock item
@@ -302,7 +301,7 @@ export default function StockPage() {
       {selectedId !== null && (
         <StockDetailModal
           itemId={selectedId}
-          isManager={isManager}
+          canManage={canManage}
           onClose={() => setSelectedId(null)}
           onChanged={() => utils.stock.list.invalidate()}
         />
@@ -315,12 +314,12 @@ export default function StockPage() {
 
 function StockDetailModal({
   itemId,
-  isManager,
+  canManage,
   onClose,
   onChanged,
 }: {
   itemId: number;
-  isManager: boolean;
+  canManage: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -431,7 +430,7 @@ function StockDetailModal({
             )}
           </div>
           <div className="flex items-center gap-2">
-            {isManager && item && (
+            {canManage && item && (
               <>
                 <button
                   type="button"
@@ -516,7 +515,7 @@ function StockDetailModal({
             )}
 
             {/* Edit form (manager+) */}
-            {editing && isManager && (
+            {editing && canManage && (
               <div className="mt-4 border border-royal-line p-4">
                 <label className={labelCls}>Name</label>
                 <input
@@ -572,14 +571,14 @@ function StockDetailModal({
             )}
 
             {/* Record a movement */}
-            {item.active && (
+            {item.active && canManage && (
               <div className="mt-4 border border-royal-line p-4">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-royal-accent">
                   Record a movement
                 </p>
                 <div className="mt-3 flex flex-wrap gap-1">
                   {(Object.keys(STOCK_MOVEMENT_LABEL) as MoveType[])
-                    .filter((t) => t !== "adjustment" || isManager)
+                    .filter((t) => t !== "adjustment" || canManage)
                     .map((t) => {
                       const Icon = MOVE_ICON[t];
                       return (

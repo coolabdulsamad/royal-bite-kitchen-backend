@@ -9,11 +9,10 @@ import {
   X,
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
-import { useAuth } from "@/lib/auth";
 import { printerManager } from "@/lib/printing/printer";
 import { formatNaira } from "@contracts/money";
 import { PAYMENT_METHOD_LABEL, type PaymentMethod } from "@contracts/payments";
-import { roleAtLeast } from "@contracts/roles";
+import { usePerms } from "@/lib/perms";
 import { ReceiptPaper } from "./pos/ReceiptView";
 import type { CompletedSaleResult } from "./pos/PaymentModal";
 
@@ -63,8 +62,10 @@ const chipCls = (active: boolean) =>
   }`;
 
 export default function SalesPage() {
-  const { user } = useAuth();
-  const isManager = user ? roleAtLeast(user.role, "manager") : false;
+  const { has, hasAny } = usePerms();
+  // See every staff member's sales (filter + cashier column): sales.manage or salesAll.view
+  const canSeeAll = hasAny([["sales", "manage"], ["salesAll", "view"]]);
+  const canReturn = has("sales", "manage");
 
   const [range, setRange] = useState<RangeKey>("today");
   const [receipt, setReceipt] = useState("");
@@ -80,11 +81,11 @@ export default function SalesPage() {
     receipt: receipt.trim() || undefined,
     status,
     method: method || undefined,
-    staffId: isManager ? staffId : undefined,
+    staffId: canSeeAll ? staffId : undefined,
     page,
     pageSize: 25,
   });
-  const staffQuery = trpc.staff.names.useQuery(undefined, { enabled: isManager });
+  const staffQuery = trpc.staff.names.useQuery(undefined, { enabled: canSeeAll });
 
   const totalPages = query.data ? Math.max(1, Math.ceil(query.data.total / 25)) : 1;
 
@@ -112,7 +113,7 @@ export default function SalesPage() {
               className="w-full border border-royal-line bg-transparent py-2.5 pl-10 pr-4 text-sm text-royal-cream placeholder:text-royal-dim/50 focus:border-royal-accent focus:outline-none"
             />
           </div>
-          {isManager && (
+          {canSeeAll && (
             <select
               value={staffId ?? ""}
               onChange={(e) => {
@@ -217,7 +218,7 @@ export default function SalesPage() {
               <tr className="border-b border-royal-line text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-royal-dim">
                 <th className="pb-3 pr-3">Receipt</th>
                 <th className="pb-3 pr-3">When</th>
-                {isManager && <th className="hidden pb-3 pr-3 md:table-cell">Cashier</th>}
+                {canSeeAll && <th className="hidden pb-3 pr-3 md:table-cell">Cashier</th>}
                 <th className="hidden pb-3 pr-3 sm:table-cell">Items</th>
                 <th className="hidden pb-3 pr-3 lg:table-cell">Payments</th>
                 <th className="pb-3 pr-3 text-right">Total</th>
@@ -235,7 +236,7 @@ export default function SalesPage() {
                     {row.receiptNo}
                   </td>
                   <td className="py-3 pr-3 text-royal-cream">{fmtDate(row.soldAt)}</td>
-                  {isManager && (
+                  {canSeeAll && (
                     <td className="hidden py-3 pr-3 text-royal-dim md:table-cell">
                       {row.staffName ?? "—"}
                     </td>
@@ -314,7 +315,7 @@ export default function SalesPage() {
       {detailId !== null && (
         <SaleDetailModal
           saleId={detailId}
-          isManager={isManager}
+          canReturn={canReturn}
           onClose={() => setDetailId(null)}
           onReturned={() => {
             void query.refetch();
@@ -331,12 +332,12 @@ export default function SalesPage() {
 
 function SaleDetailModal({
   saleId,
-  isManager,
+  canReturn,
   onClose,
   onReturned,
 }: {
   saleId: number;
-  isManager: boolean;
+  canReturn: boolean;
   onClose: () => void;
   onReturned: () => void;
 }) {
@@ -511,7 +512,7 @@ function SaleDetailModal({
                   )}
                   {printing ? "Printing…" : "Reprint"}
                 </button>
-                {isManager && sale.status === "completed" && (
+                {canReturn && sale.status === "completed" && (
                   <button
                     type="button"
                     onClick={() => setReturnOpen(true)}

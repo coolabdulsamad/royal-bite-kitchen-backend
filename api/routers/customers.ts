@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gt, like, or, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { authedProcedure, roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import { formatNaira } from "@contracts/money";
@@ -32,7 +32,7 @@ function isDuplicate(err: unknown): boolean {
  * and reactivating profiles is manager+.
  */
 export const customersRouter = createRouter({
-  list: authedProcedure
+  list: permProcedure("customers", "view")
     .input(
       z.object({
         search: z.string().trim().max(120).optional(),
@@ -82,7 +82,7 @@ export const customersRouter = createRouter({
       };
     }),
 
-  create: authedProcedure
+  create: permProcedure("customers", "manage")
     .input(
       z.object({
         name: z.string().trim().min(2).max(120),
@@ -121,7 +121,7 @@ export const customersRouter = createRouter({
       }
     }),
 
-  update: roleProcedure("manager")
+  update: permProcedure("customers", "manage")
     .input(
       z.object({
         id: z.number().int().positive(),
@@ -162,7 +162,7 @@ export const customersRouter = createRouter({
    * Profile + full credit ledger: every sale that left money on the tab and
    * every repayment, newest first. Any staff can view (they collect debts).
    */
-  detail: authedProcedure
+  detail: permProcedure("customers", "view")
     .input(z.object({ customerId: z.number().int().positive() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -236,7 +236,7 @@ export const customersRouter = createRouter({
    * at once can never push the balance negative — the loser gets a friendly
    * 400 and the whole repayment rolls back.
    */
-  repay: authedProcedure
+  repay: permProcedure("customers", "manage")
     .input(
       z.object({
         customerId: z.number().int().positive(),

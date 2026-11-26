@@ -98,8 +98,10 @@ function NewGroupForm({ onDone }: { onDone: () => void }) {
 
 function OptionRow({
   option,
+  canManage,
 }: {
   option: ModifierGroupWithOptions["options"][number];
+  canManage: boolean;
 }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
@@ -169,6 +171,7 @@ function OptionRow({
       <span className="text-xs text-royal-dim">
         {option.priceDeltaKobo > 0 ? `+${formatNaira(option.priceDeltaKobo)}` : "Free"}
       </span>
+      {canManage && (
       <span className="flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
         <button
           type="button"
@@ -187,11 +190,12 @@ function OptionRow({
           <Trash2 className="h-3 w-3" strokeWidth={1.75} />
         </ArmButton>
       </span>
+      )}
     </li>
   );
 }
 
-function GroupCard({ group }: { group: ModifierGroupWithOptions }) {
+function GroupCard({ group, canManage }: { group: ModifierGroupWithOptions; canManage: boolean }) {
   const utils = trpc.useUtils();
   const [editingGroup, setEditingGroup] = useState(false);
   const [name, setName] = useState(group.name);
@@ -251,6 +255,7 @@ function GroupCard({ group }: { group: ModifierGroupWithOptions }) {
             </span>
           </div>
         </div>
+        {canManage && (
         <div className="flex items-center gap-1.5">
           <button
             type="button"
@@ -269,6 +274,7 @@ function GroupCard({ group }: { group: ModifierGroupWithOptions }) {
             <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
           </ArmButton>
         </div>
+        )}
       </div>
 
       {/* Inline group editor */}
@@ -326,11 +332,12 @@ function GroupCard({ group }: { group: ModifierGroupWithOptions }) {
           </li>
         )}
         {group.options.map((opt) => (
-          <OptionRow key={opt.id} option={opt} />
+          <OptionRow key={opt.id} option={opt} canManage={canManage} />
         ))}
       </ul>
 
       {/* Add option */}
+      {canManage && (
       <form onSubmit={submitOption} className="flex items-end gap-3 border-t border-royal-line px-5 py-4">
         <label className="flex-1">
           <span className="text-[9px] uppercase tracking-[0.2em] text-royal-dim/70">
@@ -371,11 +378,12 @@ function GroupCard({ group }: { group: ModifierGroupWithOptions }) {
           )}
         </button>
       </form>
+      )}
     </div>
   );
 }
 
-export function ModifierLibraryTab() {
+export function ModifierLibraryTab({ canManage }: { canManage: boolean }) {
   const library = trpc.menu.modifierLibrary.useQuery();
   const [showCreate, setShowCreate] = useState(false);
 
@@ -387,6 +395,7 @@ export function ModifierLibraryTab() {
           item — portion size, swallow choice, extras. Attach them to items
           from the item editor.
         </p>
+        {canManage && (
         <button
           type="button"
           onClick={() => setShowCreate((v) => !v)}
@@ -395,9 +404,10 @@ export function ModifierLibraryTab() {
           <Plus className="h-3.5 w-3.5" strokeWidth={2} />
           New group
         </button>
+        )}
       </div>
 
-      {showCreate && <NewGroupForm onDone={() => setShowCreate(false)} />}
+      {showCreate && canManage && <NewGroupForm onDone={() => setShowCreate(false)} />}
 
       {library.isLoading && (
         <div className="flex justify-center py-16">
@@ -415,7 +425,7 @@ export function ModifierLibraryTab() {
       )}
 
       <div className="grid gap-6 xl:grid-cols-2">
-        {library.data?.map((g) => <GroupCard key={g.id} group={g} />)}
+        {library.data?.map((g) => <GroupCard key={g.id} group={g} canManage={canManage} />)}
       </div>
     </div>
   );

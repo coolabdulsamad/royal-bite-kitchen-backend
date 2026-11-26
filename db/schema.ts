@@ -723,3 +723,26 @@ export const settings = mysqlTable("settings", {
 export const settingsRelations = relations(settings, ({ one }) => ({
   updatedBy: one(users, { fields: [settings.updatedById], references: [users.id] }),
 }));
+
+/**
+ * Permission matrix overrides. A row = the ABSOLUTE level for one
+ * role × domain cell ("none" revokes a factory default); no row = factory
+ * default from contracts/permissions.ts. The "permissions" domain and the
+ * superadmin role are never stored here — they are hardcoded full so the
+ * matrix can never lock the admins out.
+ */
+export const rolePermissions = mysqlTable(
+  "role_permissions",
+  {
+    id: serial("id").primaryKey(),
+    role: mysqlEnum("role", STAFF_ROLES).notNull(),
+    domain: varchar("domain", { length: 32 }).notNull(),
+    level: mysqlEnum("level", ["none", "view", "manage"]).notNull(),
+    updatedById: bigint("updated_by_id", { mode: "number", unsigned: true })
+      .references(() => users.id),
+    updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    uniqueIndex("rp_role_domain_unique").on(table.role, table.domain),
+  ],
+);

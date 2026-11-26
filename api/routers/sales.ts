@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, like, lte, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { authedProcedure, roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import {
   bankPosTerminals,
@@ -18,7 +18,7 @@ import { nairaToKobo, formatNaira } from "@contracts/money";
 import { logEvent } from "../audit";
 import { DISCOUNT_LIMIT_PERCENT } from "@contracts/payments";
 import type { OrderStatus } from "@contracts/orders";
-import { ROLE_LEVEL } from "@contracts/roles";
+import { roleHas, roleHasAny } from "../permissions";
 import type { StaffRole } from "@contracts/roles";
 import { priceOrderLines, type ModifierSnapshot } from "../pricing";
 import { orderPaidGuard } from "./orders";
@@ -32,7 +32,7 @@ const OFFLINE_BACKDATE_LIMIT_MS = 72 * 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 export const salesRouter = createRouter({
-  completeSale: authedProcedure
+  completeSale: permProcedure("pos", "manage")
     .input(
       z.object({
         /** Ignored when paying an order (orderId set): the order's stored
@@ -374,7 +374,7 @@ export const salesRouter = createRouter({
             message: "Invalid sale date",
           });
         }
-        const isManager = ROLE_LEVEL[staffRole] >= ROLE_LEVEL.manager;
+        const isManager = await roleHas(db, staffRole, "sales", "manage");
         if (!isManager) {
           // Non-managers may only date an OFFLINE sale (clientRef present),
           // within the last 72 hours — never the future.
@@ -547,7 +547,7 @@ export const salesRouter = createRouter({
   // Sales history — cashiers see their own sales, manager+ sees everything
   // ---------------------------------------------------------------------------
 
-  salesHistory: authedProcedure
+  salesHistory: permProcedure("sales", "view")
     .input(
       z.object({
         /** Inclusive ISO bounds on sold_at */
@@ -566,7 +566,10 @@ export const salesRouter = createRouter({
     .query(async ({ ctx, input }) => {
       const db = getDb();
       const staffRole = ctx.staff.role as StaffRole;
-      const isManager = ROLE_LEVEL[staffRole] >= ROLE_LEVEL.manager;
+      const isManager = await roleHasAny(db, staffRole, [
+        ["sales", "manage"],
+        ["salesAll", "view"],
+      ]);
 
       const conditions = [];
       if (!isManager || input.staffId) {
@@ -649,12 +652,15 @@ export const salesRouter = createRouter({
     }),
 
   /** One sale with lines + payments (+ return info). Cashiers: own sales only. */
-  saleDetail: authedProcedure
+  saleDetail: permProcedure("sales", "view")
     .input(z.object({ saleId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
       const db = getDb();
       const staffRole = ctx.staff.role as StaffRole;
-      const isManager = ROLE_LEVEL[staffRole] >= ROLE_LEVEL.manager;
+      const isManager = await roleHasAny(db, staffRole, [
+        ["sales", "manage"],
+        ["salesAll", "view"],
+      ]);
 
       const [sale] = await db
         .select()
@@ -749,7 +755,7 @@ export const salesRouter = createRouter({
     }),
 
   /** Return a finished sale — manager and above only. */
-  returnSale: roleProcedure("manager")
+  returnSale: permProcedure("sales", "manage")
     .input(
       z.object({
         saleId: z.number().int().positive(),

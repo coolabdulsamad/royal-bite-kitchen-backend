@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { authedProcedure, roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import { formatNaira } from "@contracts/money";
@@ -14,7 +14,7 @@ import {
   sales,
   users,
 } from "@db/schema";
-import { ROLE_LEVEL } from "@contracts/roles";
+import { roleHas } from "../permissions";
 import type { StaffRole } from "@contracts/roles";
 
 /** Server-local midnight today — same convention as terminals.todayStats. */
@@ -95,7 +95,7 @@ function toExpense(row: typeof expenses.$inferSelect, staffName: string | null, 
  */
 export const moneyRouter = createRouter({
   expenses: createRouter({
-    create: authedProcedure
+    create: permProcedure("expenses", "manage")
       .input(
         z.object({
           category: z.enum(EXPENSE_CATEGORIES),
@@ -107,15 +107,6 @@ export const moneyRouter = createRouter({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        if (
-          input.expenseAt &&
-          ROLE_LEVEL[ctx.staff.role as StaffRole] < ROLE_LEVEL.manager
-        ) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Only managers can backdate an expense.",
-          });
-        }
         const db = getDb();
         const amountKobo = Math.round(input.amount * 100);
         if (amountKobo <= 0) {
@@ -139,7 +130,7 @@ export const moneyRouter = createRouter({
         return { ok: true, expenseId: Number(result.insertId), amountKobo };
       }),
 
-    list: authedProcedure
+    list: permProcedure("expenses", "view")
       .input(
         z
           .object({
@@ -151,8 +142,7 @@ export const moneyRouter = createRouter({
       )
       .query(async ({ ctx, input }) => {
         const db = getDb();
-        const isManager = ROLE_LEVEL[ctx.staff.role as StaffRole] >= ROLE_LEVEL.manager;
-        const showAll = isManager && (input?.all ?? true);
+        const showAll = input?.all ?? true;
         const rows = await db
           .select({ expense: expenses, staffName: users.name })
           .from(expenses)
@@ -166,14 +156,19 @@ export const moneyRouter = createRouter({
           : [];
         const voiderName = new Map(voiders.map((v) => [v.id, v.name]));
         return {
-          isManager,
+          isManager: await roleHas(
+            db,
+            ctx.staff.role as StaffRole,
+            "expenses",
+            "manage",
+          ),
           expenses: rows.map((r) =>
             toExpense(r.expense, r.staffName, r.expense.voidedById ? voiderName.get(r.expense.voidedById) ?? null : null),
           ),
         };
       }),
 
-    void: roleProcedure("manager")
+    void: permProcedure("expenses", "manage")
       .input(z.object({ expenseId: z.number().int().positive(), reason: z.string().trim().min(3).max(255) }))
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
@@ -199,12 +194,12 @@ export const moneyRouter = createRouter({
   }),
 
   drawer: createRouter({
-    summary: authedProcedure.query(async () => {
+    summary: permProcedure("drawer", "view").query(async () => {
       const db = getDb();
       return expectedCashKobo(db, todayStart());
     }),
 
-    count: authedProcedure
+    count: permProcedure("drawer", "manage")
       .input(z.object({ counted: z.number().min(0).max(100_000_000), note: z.string().trim().max(255).optional() }))
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
@@ -233,7 +228,7 @@ export const moneyRouter = createRouter({
         };
       }),
 
-    counts: roleProcedure("manager")
+    counts: permProcedure("drawer", "view")
       .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }).optional())
       .query(async ({ input }) => {
         const db = getDb();

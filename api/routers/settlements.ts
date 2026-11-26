@@ -14,7 +14,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import {
@@ -114,7 +114,7 @@ export const settlementsRouter = createRouter({
    * Headline tiles + per-partner breakdown. Outstanding figures are as-of-now;
    * received figures cover the selected range (by paid date).
    */
-  overview: roleProcedure("manager")
+  overview: permProcedure("settlements", "view")
     .input(z.object({ from: dayInput, to: dayInput }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -234,7 +234,7 @@ export const settlementsRouter = createRouter({
    * The unsettled register — completed delivery orders the partner still owes
    * us for, with full lines so an invoice can be previewed before creation.
    */
-  unsettled: roleProcedure("manager")
+  unsettled: permProcedure("settlements", "view")
     .input(
       z.object({
         partnerConnectionId: z.number().int().positive().optional(),
@@ -289,7 +289,7 @@ export const settlementsRouter = createRouter({
    * belong to the connection, be handed over (completed), unpaid at the till
    * and not already on a live invoice — checked atomically in one tx.
    */
-  createInvoice: roleProcedure("manager")
+  createInvoice: permProcedure("settlements", "manage")
     .input(
       z.object({
         partnerConnectionId: z.number().int().positive(),
@@ -402,7 +402,7 @@ export const settlementsRouter = createRouter({
     }),
 
   /** Invoice register — filters, search and pagination. */
-  invoices: roleProcedure("manager")
+  invoices: permProcedure("settlements", "view")
     .input(
       z.object({
         partnerConnectionId: z.number().int().positive().optional(),
@@ -485,7 +485,7 @@ export const settlementsRouter = createRouter({
     }),
 
   /** One invoice with every accumulated order and its lines — print source. */
-  invoiceDetail: roleProcedure("manager")
+  invoiceDetail: permProcedure("settlements", "view")
     .input(z.object({ invoiceId: z.number().int().positive() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -569,7 +569,7 @@ export const settlementsRouter = createRouter({
    * invoice no — revenue lands on the day the food was sold), books the
    * partner commission as an expense, and marks the whole invoice paid.
    */
-  markPaid: roleProcedure("manager")
+  markPaid: permProcedure("settlements", "manage")
     .input(
       z.object({
         invoiceId: z.number().int().positive(),
@@ -701,7 +701,7 @@ export const settlementsRouter = createRouter({
    * Cancel an OPEN invoice — the orders go back to the unsettled register and
    * can be invoiced again. Paid invoices are money: they can't be cancelled.
    */
-  cancelInvoice: roleProcedure("manager")
+  cancelInvoice: permProcedure("settlements", "manage")
     .input(
       z.object({
         invoiceId: z.number().int().positive(),

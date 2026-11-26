@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, notInArray, isNull, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { authedProcedure, roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { orderItems, orders, sales, users } from "@db/schema";
 import {
@@ -25,7 +25,7 @@ export const ordersRouter = createRouter({
    * Place a kitchen order. Any staff role can take an order; the server
    * re-prices every line against the live menu (shared with completeSale).
    */
-  create: authedProcedure
+  create: permProcedure("pos", "manage")
     .input(
       z.object({
         /** Table number / customer name — shown big on the kitchen ticket. */
@@ -88,7 +88,7 @@ export const ordersRouter = createRouter({
    * first; a specific status or "all" lists newest first. Every staff role
    * can read the board — the kitchen screen runs on a staff login.
    */
-  list: authedProcedure
+  list: permProcedure("orders", "view")
     .input(
       z.object({
         status: z
@@ -208,7 +208,7 @@ export const ordersRouter = createRouter({
    * staff login. Forward-only, enforced conditionally so two taps on two
    * screens can't skip or double-advance.
    */
-  advance: authedProcedure
+  advance: permProcedure("orders", "manage")
     .input(
       z.object({
         orderId: z.number().int().positive(),
@@ -276,7 +276,7 @@ export const ordersRouter = createRouter({
    * Cancel an unpaid order — manager and above, with a reason. A paid order
    * is money: it must be returned through Sales History instead.
    */
-  cancel: roleProcedure("manager")
+  cancel: permProcedure("orders", "manage")
     .input(
       z.object({
         orderId: z.number().int().positive(),
@@ -337,7 +337,7 @@ export const ordersRouter = createRouter({
    * when several board screens poll at once, exactly one prints each ticket.
    * Returns the ids THIS caller claimed — print only those.
    */
-  markTicketsPrinted: authedProcedure
+  markTicketsPrinted: permProcedure("orders", "manage")
     .input(z.object({ orderIds: z.array(z.number().int().positive()).min(1).max(20) }))
     .mutation(async ({ input }) => {
       const db = getDb();

@@ -13,6 +13,7 @@ import type { MenuCategory, MenuItemWithGroups } from "@/lib/menuTypes";
 import { ItemEditorModal } from "./menu/ItemEditorModal";
 import { ModifierLibraryTab } from "./menu/ModifierLibrary";
 import { ArmButton } from "./menu/ArmButton";
+import { usePerms } from "@/lib/perms";
 
 const iconBtnCls =
   "border border-royal-line p-1.5 text-royal-dim transition-colors hover:border-royal-accent hover:text-royal-accent disabled:opacity-40";
@@ -71,10 +72,12 @@ function AddCategoryForm({ onDone }: { onDone: () => void }) {
 function CategoryRow({
   category,
   selected,
+  canManage,
   onSelect,
 }: {
   category: MenuCategory;
   selected: boolean;
+  canManage: boolean;
   onSelect: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -146,6 +149,7 @@ function CategoryRow({
           {category.items.length}
         </span>
       </button>
+      {canManage && (
       <span className="absolute right-7 top-1/2 hidden -translate-y-1/2 items-center gap-1 group-hover:flex">
         <button
           type="button"
@@ -176,6 +180,7 @@ function CategoryRow({
           <Trash2 className="h-3 w-3" strokeWidth={1.75} />
         </ArmButton>
       </span>
+      )}
       {error && (
         <p className="px-3 pb-2 text-[11px] leading-4 text-rose-300">{error}</p>
       )}
@@ -185,9 +190,11 @@ function CategoryRow({
 
 function ItemRow({
   item,
+  canManage,
   onEdit,
 }: {
   item: MenuItemWithGroups;
+  canManage: boolean;
   onEdit: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -231,6 +238,7 @@ function ItemRow({
         </div>
       </td>
       <td className="px-5 py-3.5">
+        {canManage ? (
         <button
           type="button"
           role="switch"
@@ -253,7 +261,17 @@ function ItemRow({
             }`}
           />
         </button>
+        ) : (
+          <span
+            className={`text-[10px] font-semibold uppercase tracking-[0.15em] ${
+              item.available ? "text-emerald-300" : "text-royal-dim"
+            }`}
+          >
+            {item.available ? "Available" : "Sold out"}
+          </span>
+        )}
       </td>
+      {canManage && (
       <td className="px-5 py-3.5">
         <div className="flex items-center justify-end gap-1.5">
           <button type="button" title="Edit item" onClick={onEdit} className={iconBtnCls}>
@@ -269,11 +287,14 @@ function ItemRow({
           </ArmButton>
         </div>
       </td>
+      )}
     </tr>
   );
 }
 
 export default function MenuPage() {
+  const { has } = usePerms();
+  const canManage = has("menu", "manage");
   const menu = trpc.menu.fullMenu.useQuery();
   const library = trpc.menu.modifierLibrary.useQuery();
   const [tab, setTab] = useState<"items" | "modifiers">("items");
@@ -310,7 +331,7 @@ export default function MenuPage() {
             the POS immediately.
           </p>
         </div>
-        {tab === "items" && (
+        {tab === "items" && canManage && (
           <button
             type="button"
             onClick={() => setEditor({ item: null })}
@@ -345,7 +366,7 @@ export default function MenuPage() {
         ))}
       </div>
 
-      {tab === "modifiers" && <ModifierLibraryTab />}
+      {tab === "modifiers" && <ModifierLibraryTab canManage={canManage} />}
 
       {tab === "items" && (
         <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
@@ -355,6 +376,7 @@ export default function MenuPage() {
               <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-royal-dim">
                 Categories
               </span>
+              {canManage && (
               <button
                 type="button"
                 title="Add category"
@@ -363,8 +385,9 @@ export default function MenuPage() {
               >
                 <Plus className="h-3.5 w-3.5" strokeWidth={2} />
               </button>
+              )}
             </div>
-            {addingCategory && (
+            {addingCategory && canManage && (
               <AddCategoryForm onDone={() => setAddingCategory(false)} />
             )}
             <button
@@ -384,6 +407,7 @@ export default function MenuPage() {
                 key={c.id}
                 category={c}
                 selected={selectedCat === c.id}
+                canManage={canManage}
                 onSelect={() => setSelectedCat(c.id)}
               />
             ))}
@@ -443,7 +467,7 @@ export default function MenuPage() {
                             <th className="px-5 py-3 font-semibold">Price</th>
                             <th className="px-5 py-3 font-semibold">Modifiers</th>
                             <th className="px-5 py-3 font-semibold">Available</th>
-                            <th className="px-5 py-3 text-right font-semibold">Actions</th>
+                            {canManage && <th className="px-5 py-3 text-right font-semibold">Actions</th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -451,6 +475,7 @@ export default function MenuPage() {
                             <ItemRow
                               key={item.id}
                               item={item}
+                              canManage={canManage}
                               onEdit={() => setEditor({ item })}
                             />
                           ))}
@@ -466,7 +491,7 @@ export default function MenuPage() {
       )}
 
       {/* Item editor modal */}
-      {editor && menu.data && (
+      {editor && menu.data && canManage && (
         <ItemEditorModal
           categories={menu.data}
           modifierLibrary={library.data ?? []}

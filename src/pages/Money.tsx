@@ -15,8 +15,7 @@ import {
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { formatNaira } from "@contracts/money";
-import { useAuth } from "@/lib/auth";
-import { roleAtLeast } from "@contracts/roles";
+import { usePerms } from "@/lib/perms";
 
 const inputCls =
   "mt-2 w-full border-b border-royal-line bg-transparent py-2.5 text-sm text-royal-cream placeholder:text-royal-dim/50 transition-colors focus:border-royal-accent focus:outline-none";
@@ -37,14 +36,14 @@ const EXPENSE_CATEGORIES = [
 // Cash drawer
 // ---------------------------------------------------------------------------
 
-function CashDrawerSection({ isManager }: { isManager: boolean }) {
+function CashDrawerSection({ canView, canManage }: { canView: boolean; canManage: boolean }) {
   const utils = trpc.useUtils();
   const summary = trpc.money.drawer.summary.useQuery(undefined, {
     refetchInterval: 60_000,
   });
   const counts = trpc.money.drawer.counts.useQuery(
     { limit: 10 },
-    { enabled: isManager },
+    { enabled: canView },
   );
 
   const [counted, setCounted] = useState("");
@@ -57,11 +56,17 @@ function CashDrawerSection({ isManager }: { isManager: boolean }) {
   const [error, setError] = useState<string | null>(null);
 
   const countMutation = trpc.money.drawer.count.useMutation({
-    onSuccess: (r) => {
+    onSuccess: async (r) => {
       setResult(r);
       setCounted("");
       setNote("");
       setError(null);
+      // Cancel-then-invalidate (see refresh() below for why plain
+      // invalidate is not enough while the mount batch is in flight).
+      await Promise.all([
+        utils.money.drawer.summary.cancel(),
+        utils.money.drawer.counts.cancel(),
+      ]);
       utils.money.drawer.summary.invalidate();
       utils.money.drawer.counts.invalidate();
     },
@@ -122,6 +127,7 @@ function CashDrawerSection({ isManager }: { isManager: boolean }) {
         </div>
       )}
 
+      {canManage && (
       <form onSubmit={handleCount} className="mt-6 grid gap-6 border-t border-royal-line pt-6 sm:grid-cols-[1fr_2fr_auto] sm:items-end">
         <div>
           <label className={labelCls}>Counted cash (₦) *</label>
@@ -155,6 +161,7 @@ function CashDrawerSection({ isManager }: { isManager: boolean }) {
           Count drawer
         </button>
       </form>
+      )}
 
       {error && (
         <p className="mt-4 flex items-center gap-2 text-sm text-red-300">
@@ -181,9 +188,9 @@ function CashDrawerSection({ isManager }: { isManager: boolean }) {
         </div>
       )}
 
-      {isManager && (
+      {canView && (
         <div className="mt-6 border-t border-royal-line pt-6">
-          <p className={labelCls}>Recent counts (managers only)</p>
+          <p className={labelCls}>Recent counts</p>
           {counts.isLoading ? (
             <div className="mt-3 flex items-center gap-2 text-sm text-royal-dim">
               <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> Loading…
@@ -234,7 +241,7 @@ function CashDrawerSection({ isManager }: { isManager: boolean }) {
 // Expenses
 // ---------------------------------------------------------------------------
 
-function ExpensesSection({ isManager }: { isManager: boolean }) {
+function ExpensesSection({ canManage }: { canManage: boolean }) {
   const utils = trpc.useUtils();
   const list = trpc.money.expenses.list.useQuery({ limit: 100 });
 
@@ -249,7 +256,21 @@ function ExpensesSection({ isManager }: { isManager: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  function refresh() {
+  // Cancel-then-invalidate. A plain invalidate() only *joins* an in-flight
+  // first fetch instead of starting a fresh one — react-query cancels an
+  // in-flight fetch on invalidate only when the query already has data, which
+  // is never true while the page's mount batch is still running (remote DB +
+  // slow insights query stretch that window to seconds). The mutation then
+  // "succeeds" but the list keeps showing mount-time data. Cancelling first
+  // drops fetchStatus back to idle so the invalidate starts a genuinely fresh
+  // fetch. Per-query cancels don't abort the shared batch HTTP request (tRPC
+  // aborts it only once every op in the batch is aborted), so the other
+  // in-flight queries are unaffected.
+  async function refresh() {
+    await Promise.all([
+      utils.money.expenses.list.cancel(),
+      utils.money.drawer.summary.cancel(),
+    ]);
     utils.money.expenses.list.invalidate();
     utils.money.drawer.summary.invalidate();
   }
@@ -305,8 +326,9 @@ function ExpensesSection({ isManager }: { isManager: boolean }) {
       <div className="flex items-start justify-between gap-4">
         <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-royal-accent">
           <Receipt className="h-4 w-4" strokeWidth={2} />
-          Expenses {isManager ? "· all staff" : "· yours"}
+          Expenses · all staff
         </p>
+        {canManage && (
         <button
           type="button"
           onClick={() => setShowForm((v) => !v)}
@@ -316,6 +338,7 @@ function ExpensesSection({ isManager }: { isManager: boolean }) {
           <Plus className="h-3.5 w-3.5" strokeWidth={2} />
           New expense
         </button>
+        )}
       </div>
 
       {notice && (
@@ -330,7 +353,7 @@ function ExpensesSection({ isManager }: { isManager: boolean }) {
         </p>
       )}
 
-      {showForm && (
+      {showForm && canManage && (
         <form onSubmit={handleCreate} className="mt-6 border border-royal-line bg-royal-bg p-6">
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             <div>
@@ -386,9 +409,9 @@ function ExpensesSection({ isManager }: { isManager: boolean }) {
                 data-testid="expense-note"
               />
             </div>
-            {isManager && (
+            {canManage && (
               <div>
-                <label className={labelCls}>Backdate (managers)</label>
+                <label className={labelCls}>Backdate</label>
                 <input
                   type="datetime-local"
                   className={inputCls}
@@ -456,7 +479,7 @@ function ExpensesSection({ isManager }: { isManager: boolean }) {
                 <p className={`text-sm font-bold ${e.voidedAt ? "text-royal-dim line-through" : "text-royal-accent"}`}>
                   {formatNaira(e.amountKobo)}
                 </p>
-                {isManager && !e.voidedAt && (
+                {canManage && !e.voidedAt && (
                   <button
                     type="button"
                     onClick={() => {
@@ -520,7 +543,7 @@ type TerminalForm = {
 };
 const EMPTY_FORM: TerminalForm = { name: "", provider: "", terminalCode: "", notes: "" };
 
-function TerminalsSection() {
+function TerminalsSection({ canManage }: { canManage: boolean }) {
   const utils = trpc.useUtils();
 
   const list = trpc.terminals.list.useQuery();
@@ -531,7 +554,12 @@ function TerminalsSection() {
   const [form, setForm] = useState<TerminalForm>(EMPTY_FORM);
   const [notice, setNotice] = useState<string | null>(null);
 
-  function refresh() {
+  async function refresh() {
+    // Cancel-then-invalidate — see the ExpensesSection refresh() comment.
+    await Promise.all([
+      utils.terminals.list.cancel(),
+      utils.terminals.todayStats.cancel(),
+    ]);
     utils.terminals.list.invalidate();
     utils.terminals.todayStats.invalidate();
   }
@@ -621,6 +649,7 @@ function TerminalsSection() {
             matches each machine's own report.
           </p>
         </div>
+        {canManage && (
         <button
           type="button"
           onClick={() => (showForm ? setShowForm(false) : openCreate())}
@@ -629,6 +658,7 @@ function TerminalsSection() {
           <Plus className="h-3.5 w-3.5" strokeWidth={2} />
           New terminal
         </button>
+        )}
       </div>
 
       {notice && (
@@ -638,7 +668,7 @@ function TerminalsSection() {
         </div>
       )}
 
-      {showForm && (
+      {showForm && canManage && (
         <form onSubmit={handleSubmit} className="border border-royal-line bg-royal-panel p-6">
           <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-royal-accent">
             {editingId !== null ? "Edit terminal" : "Register a terminal"}
@@ -815,6 +845,7 @@ function TerminalsSection() {
                       .join(" · ") || "No extra details"}
                   </p>
                 </div>
+                {canManage && (
                 <button
                   type="button"
                   onClick={() => openEdit(t)}
@@ -824,6 +855,8 @@ function TerminalsSection() {
                   <Pencil className="h-3 w-3" strokeWidth={2} />
                   Edit
                 </button>
+                )}
+                {canManage && (
                 <button
                   type="button"
                   onClick={() =>
@@ -848,6 +881,7 @@ function TerminalsSection() {
                     </>
                   )}
                 </button>
+                )}
               </div>
             ))}
           </div>
@@ -862,8 +896,7 @@ function TerminalsSection() {
 // ---------------------------------------------------------------------------
 
 export default function MoneyPage() {
-  const { user } = useAuth();
-  const isManager = user ? roleAtLeast(user.role, "manager") : false;
+  const { has } = usePerms();
 
   return (
     <div className="space-y-8">
@@ -877,9 +910,11 @@ export default function MoneyPage() {
         </p>
       </div>
 
-      <CashDrawerSection isManager={isManager} />
-      <ExpensesSection isManager={isManager} />
-      {isManager && <TerminalsSection />}
+      {has("drawer", "view") && (
+        <CashDrawerSection canView={has("drawer", "view")} canManage={has("drawer", "manage")} />
+      )}
+      {has("expenses", "view") && <ExpensesSection canManage={has("expenses", "manage")} />}
+      {has("terminals", "view") && <TerminalsSection canManage={has("terminals", "manage")} />}
     </div>
   );
 }

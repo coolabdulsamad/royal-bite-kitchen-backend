@@ -1,6 +1,9 @@
+import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/shell/AppShell";
 import { RequireAuth } from "@/components/shell/RequireAuth";
+import { ALL_NAV_ITEMS, homePathFor } from "@/lib/nav";
+import { usePermissionMap } from "@/lib/perms";
 import Login from "@/pages/Login";
 import StaffPage from "@/pages/Staff";
 import AccountPage from "@/pages/Account";
@@ -16,6 +19,19 @@ import StockPage from "@/pages/Stock";
 import AttendancePage from "@/pages/Attendance";
 import ReportsPage from "@/pages/Reports";
 import SettingsPage from "@/pages/Settings";
+import SettlementsPage from "@/pages/Settlements";
+import PermissionsPage from "@/pages/Permissions";
+
+/** Wrap a page in the nav item's permission gate (looked up by path). */
+function gated(path: string, page: ReactNode) {
+  const item = ALL_NAV_ITEMS.find((i) => i.path === path);
+  return <RequireAuth item={item}>{page}</RequireAuth>;
+}
+
+function HomeRedirect() {
+  const map = usePermissionMap();
+  return <Navigate to={homePathFor(map)} replace />;
+}
 
 export default function App() {
   return (
@@ -29,64 +45,24 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route path="/" element={<Navigate to="/pos" replace />} />
-        <Route path="/pos" element={<PosPage />} />
-        <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/sales" element={<SalesPage />} />
-        <Route path="/customers" element={<CustomersPage />} />
-        <Route path="/stock" element={<StockPage />} />
+        <Route path="/" element={<HomeRedirect />} />
+        <Route path="/pos" element={gated("/pos", <PosPage />)} />
+        <Route path="/orders" element={gated("/orders", <OrdersPage />)} />
+        <Route path="/sales" element={gated("/sales", <SalesPage />)} />
+        <Route path="/customers" element={gated("/customers", <CustomersPage />)} />
+        <Route path="/stock" element={gated("/stock", <StockPage />)} />
         <Route path="/attendance" element={<AttendancePage />} />
         <Route path="/account" element={<AccountPage />} />
-        <Route
-          path="/menu"
-          element={
-            <RequireAuth minRole="manager">
-              <MenuPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/money"
-          element={
-            <RequireAuth>
-              <MoneyPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/activity"
-          element={
-            <RequireAuth minRole="manager">
-              <ActivityPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/reports"
-          element={
-            <RequireAuth minRole="manager">
-              <ReportsPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/staff"
-          element={
-            <RequireAuth minRole="admin">
-              <StaffPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <RequireAuth minRole="admin">
-              <SettingsPage />
-            </RequireAuth>
-          }
-        />
+        <Route path="/menu" element={gated("/menu", <MenuPage />)} />
+        <Route path="/money" element={gated("/money", <MoneyPage />)} />
+        <Route path="/activity" element={gated("/activity", <ActivityPage />)} />
+        <Route path="/reports" element={gated("/reports", <ReportsPage />)} />
+        <Route path="/settlements" element={gated("/settlements", <SettlementsPage />)} />
+        <Route path="/staff" element={gated("/staff", <StaffPage />)} />
+        <Route path="/settings" element={gated("/settings", <SettingsPage />)} />
+        <Route path="/permissions" element={gated("/permissions", <PermissionsPage />)} />
       </Route>
-      <Route path="*" element={<Navigate to="/pos" replace />} />
+      <Route path="*" element={<HomeRedirect />} />
     </Routes>
   );
 }

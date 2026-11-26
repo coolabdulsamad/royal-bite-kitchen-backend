@@ -6,9 +6,10 @@ import { useBusinessSettings } from "@/lib/businessSettings";
 import { PrinterMenu } from "@/components/PrinterMenu";
 import { SyncMenu } from "@/components/SyncMenu";
 import { outboxStore } from "@/lib/offline";
-import { ALL_NAV_ITEMS, NAV_GROUPS, type NavItem } from "@/lib/nav";
+import { ALL_NAV_ITEMS, NAV_GROUPS, navItemAllowed, type NavItem } from "@/lib/nav";
 import { useAuth } from "@/lib/auth";
-import { ROLE_LABEL, roleAtLeast } from "@contracts/roles";
+import { ROLE_LABEL } from "@contracts/roles";
+import { usePerms } from "@/lib/perms";
 
 function BrandBlock({ collapsed = false }: { collapsed?: boolean }) {
   return (
@@ -43,13 +44,11 @@ function Nav({
   onNavigate?: () => void;
   collapsed?: boolean;
 }) {
-  const { user } = useAuth();
+  const { map } = usePerms();
 
   const visibleGroups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter(
-      (item: NavItem) => user && roleAtLeast(user.role, item.minRole),
-    ),
+    items: group.items.filter((item: NavItem) => navItemAllowed(item, map)),
   })).filter((group) => group.items.length > 0);
 
   return (
@@ -129,16 +128,16 @@ function SidebarFooter({
 }
 
 function AlertsBell() {
-  const { user } = useAuth();
+  const { has } = usePerms();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const isManager = user ? roleAtLeast(user.role, "manager") : false;
+  const canSeeAlerts = has("reports", "view");
 
   const today = new Date();
   const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const alerts = trpc.insights.generate.useQuery(
     { from: iso, to: iso },
-    { enabled: isManager, refetchInterval: 120_000 },
+    { enabled: canSeeAlerts, refetchInterval: 120_000 },
   );
   const items = (alerts.data?.insights ?? []).filter((i) => i.tone === "bad" || i.tone === "warn");
 
@@ -151,7 +150,7 @@ function AlertsBell() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  if (!isManager) return null;
+  if (!canSeeAlerts) return null;
 
   return (
     <div className="relative" ref={ref}>

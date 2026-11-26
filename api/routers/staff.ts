@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { asc, eq } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { roleProcedure } from "../auth/guards";
+import { authedProcedure, permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import { users, type User } from "@db/schema";
@@ -48,10 +48,11 @@ function publicUser(u: User) {
   };
 }
 
-const adminProcedure = roleProcedure("admin");
+const manageProcedure = permProcedure("staff", "manage");
+const viewProcedure = permProcedure("staff", "view");
 
 export const staffRouter = createRouter({
-  list: adminProcedure.query(async ({ ctx }) => {
+  list: viewProcedure.query(async ({ ctx }) => {
     const db = getDb();
     const rows = await db.select().from(users).orderBy(asc(users.staffCode));
     // Show accounts at or below the actor's own level.
@@ -60,12 +61,12 @@ export const staffRouter = createRouter({
     return rows.filter((r) => ROLE_LEVEL[r.role] <= max).map(publicUser);
   }),
 
-  manageableRoles: adminProcedure.query(({ ctx }) =>
+  manageableRoles: viewProcedure.query(({ ctx }) =>
     manageableRoles(ctx.staff.role),
   ),
 
   /** id + name of all staff — manager+ (for filters like Sales History). */
-  names: roleProcedure("manager").query(async () => {
+  names: authedProcedure.query(async () => {
     const db = getDb();
     const rows = await db
       .select({ id: users.id, name: users.name })
@@ -74,7 +75,7 @@ export const staffRouter = createRouter({
     return rows;
   }),
 
-  create: adminProcedure
+  create: manageProcedure
     .input(
       z.object({
         name: z.string().trim().min(2).max(120),
@@ -128,7 +129,7 @@ export const staffRouter = createRouter({
       return { ok: true };
     }),
 
-  setActive: adminProcedure
+  setActive: manageProcedure
     .input(z.object({ id: z.number(), active: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       if (input.id === ctx.staff.sub) {
@@ -148,7 +149,7 @@ export const staffRouter = createRouter({
     }),
 
   /** Resets the target's secret to a generated one and returns it ONCE. */
-  resetSecret: adminProcedure
+  resetSecret: manageProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       if (input.id === ctx.staff.sub) {

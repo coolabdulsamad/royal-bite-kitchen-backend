@@ -9,9 +9,8 @@ import {
   Users,
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
-import { useAuth } from "@/lib/auth";
 import { formatMinutes } from "@contracts/attendance";
-import { roleAtLeast } from "@contracts/roles";
+import { usePerms } from "@/lib/perms";
 
 const inputCls =
   "mt-2 w-full border-b border-royal-line bg-transparent py-2.5 text-sm text-royal-cream placeholder:text-royal-dim/50 transition-colors focus:border-royal-accent focus:outline-none";
@@ -44,9 +43,9 @@ function sameDay(a: string, b: string) {
 type RangeKey = "today" | "yesterday" | "week";
 
 export default function AttendancePage() {
-  const { user } = useAuth();
   const utils = trpc.useUtils();
-  const isManager = user ? roleAtLeast(user.role, "manager") : false;
+  const { has } = usePerms();
+  const canSeeTeam = has("attendanceTeam", "view");
 
   const status = trpc.attendance.status.useQuery(undefined, {
     refetchInterval: 30_000,
@@ -66,7 +65,7 @@ export default function AttendancePage() {
   function refresh() {
     status.refetch();
     mine.refetch();
-    if (isManager) utils.attendance.report.invalidate();
+    if (canSeeTeam) utils.attendance.report.invalidate();
   }
 
   const clockIn = trpc.attendance.clockIn.useMutation({
@@ -229,7 +228,7 @@ export default function AttendancePage() {
         )}
       </div>
 
-      {isManager && <TeamReport />}
+      {canSeeTeam && <TeamReport />}
     </div>
   );
 }

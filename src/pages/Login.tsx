@@ -3,11 +3,14 @@ import { useNavigate } from "react-router";
 import { Loader2, Server } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/lib/auth";
+import { homePathFor } from "@/lib/nav";
+import { usePermissionMap } from "@/lib/perms";
 import { getServerUrl, isNativeApp, saveServerUrl } from "@/lib/apiAuth";
 
 export default function Login() {
   const navigate = useNavigate();
   const { status, login } = useAuth();
+  const sessionMap = usePermissionMap();
   const [staffId, setStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,10 +20,10 @@ export default function Login() {
 
   const loginMutation = trpc.auth.login.useMutation();
 
-  // Already signed in → straight to the till.
+  // Already signed in → straight to this role's home page.
   useEffect(() => {
-    if (status === "authed") navigate("/pos", { replace: true });
-  }, [status, navigate]);
+    if (status === "authed") navigate(homePathFor(sessionMap), { replace: true });
+  }, [status, navigate, sessionMap]);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -39,7 +42,7 @@ export default function Login() {
       {
         onSuccess: (data) => {
           login(data.token, data.user);
-          navigate("/pos", { replace: true });
+          navigate(homePathFor(data.user.permissions), { replace: true });
         },
         onError: (err) => setError(err.message),
       },

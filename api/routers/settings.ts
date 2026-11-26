@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createRouter } from "../middleware";
-import { authedProcedure, roleProcedure } from "../auth/guards";
+import { authedProcedure, permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { settings } from "@db/schema";
 import { SETTING_KEYS, SETTING_LABEL, toBusinessSettings, type SettingKey } from "@contracts/settings";
@@ -27,7 +27,7 @@ export const settingsRouter = createRouter({
     return toBusinessSettings(rows);
   }),
 
-  update: roleProcedure("admin")
+  update: permProcedure("settings", "manage")
     .input(updateInput)
     .mutation(async ({ ctx, input }) => {
       const db = getDb();

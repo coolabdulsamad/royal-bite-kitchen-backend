@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, desc, eq, gte, like, lt, or, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { auditEvents } from "@db/schema";
 
@@ -30,6 +30,7 @@ export const AUDIT_ACTIONS = [
   "settlement.paid",
   "settlement.cancel",
   "settings.update",
+  "permissions.update",
 ] as const;
 
 /**
@@ -37,7 +38,7 @@ export const AUDIT_ACTIONS = [
  * appends a row here: who did what, to which record, and a human summary.
  */
 export const auditRouter = createRouter({
-  list: roleProcedure("manager")
+  list: permProcedure("activity", "view")
     .input(
       z
         .object({

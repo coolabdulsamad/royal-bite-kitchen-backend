@@ -3,7 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import { partnerConnections } from "@db/schema";
@@ -16,7 +16,7 @@ import { COMMISSION_BPS_MAX } from "@contracts/settlements";
  * create or rotate (same discipline as API keys everywhere else).
  */
 export const partnersRouter = createRouter({
-  list: roleProcedure("manager").query(async () => {
+  list: permProcedure("partners", "view").query(async () => {
     const db = getDb();
     const rows = await db
       .select({
@@ -38,7 +38,7 @@ export const partnersRouter = createRouter({
     }));
   }),
 
-  create: roleProcedure("manager")
+  create: permProcedure("partners", "manage")
     .input(
       z.object({
         provider: z.enum(PARTNER_PROVIDERS),
@@ -79,7 +79,7 @@ export const partnersRouter = createRouter({
       };
     }),
 
-  update: roleProcedure("manager")
+  update: permProcedure("partners", "manage")
     .input(
       z.object({
         id: z.number().int().positive(),
@@ -121,7 +121,7 @@ export const partnersRouter = createRouter({
     }),
 
   /** Mint a fresh token (the old one stops working immediately). Shown once. */
-  rotateToken: roleProcedure("manager")
+  rotateToken: permProcedure("partners", "manage")
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
       const db = getDb();

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import {
   customers,
@@ -37,7 +37,7 @@ function pct(change: number): string {
  * every insight is computed from real numbers, never invented.
  */
 export const insightsRouter = createRouter({
-  generate: roleProcedure("manager")
+  generate: permProcedure("reports", "view")
     .input(z.object({ from: z.coerce.date(), to: z.coerce.date() }))
     .query(async ({ input }) => {
       const db = getDb();

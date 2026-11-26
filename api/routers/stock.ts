@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, like, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { authedProcedure, roleProcedure } from "../auth/guards";
+import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import { stockItems, stockMovements, users } from "@db/schema";
@@ -16,7 +16,7 @@ import { toMilli } from "@contracts/stock";
  * because adjustments are the classic theft vector.
  */
 export const stockRouter = createRouter({
-  list: authedProcedure
+  list: permProcedure("stock", "view")
     .input(
       z.object({
         search: z.string().trim().max(120).optional(),
@@ -85,7 +85,7 @@ export const stockRouter = createRouter({
       };
     }),
 
-  create: roleProcedure("manager")
+  create: permProcedure("stock", "manage")
     .input(
       z.object({
         name: z.string().trim().min(2).max(120),
@@ -140,7 +140,7 @@ export const stockRouter = createRouter({
       return created;
     }),
 
-  update: roleProcedure("manager")
+  update: permProcedure("stock", "manage")
     .input(
       z.object({
         id: z.number().int().positive(),
@@ -191,7 +191,7 @@ export const stockRouter = createRouter({
    * UPDATE that can't take stock below zero — two people scooping the last
    * of the rice at once get one success and one friendly error.
    */
-  move: authedProcedure
+  move: permProcedure("stock", "manage")
     .input(
       z.object({
         itemId: z.number().int().positive(),
@@ -283,7 +283,7 @@ export const stockRouter = createRouter({
     }),
 
   /** Manager-only correction: set the exact counted quantity. */
-  adjust: roleProcedure("manager")
+  adjust: permProcedure("stock", "manage")
     .input(
       z.object({
         itemId: z.number().int().positive(),
@@ -329,7 +329,7 @@ export const stockRouter = createRouter({
       return { ok: true as const, itemId: adjusted.itemId, balanceAfterMilli: adjusted.balanceAfterMilli };
     }),
 
-  history: authedProcedure
+  history: permProcedure("stock", "view")
     .input(
       z.object({
         itemId: z.number().int().positive(),

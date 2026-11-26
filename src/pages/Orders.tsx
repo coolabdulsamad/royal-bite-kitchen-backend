@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
-import { useAuth } from "@/lib/auth";
+import { usePerms } from "@/lib/perms";
 import { printerManager, usePrinter } from "@/lib/printing/printer";
 import { formatNaira } from "@contracts/money";
 import {
@@ -24,6 +24,7 @@ import {
   type OrderStatus,
 } from "@contracts/orders";
 import { ORDER_SOURCE_LABEL } from "@contracts/partners";
+import { ORDER_SETTLEMENT_LABEL } from "@contracts/settlements";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../api/router";
 import { NewOrderModal } from "./orders/NewOrderModal";
@@ -81,10 +82,12 @@ function formatElapsed(min: number): string {
 }
 
 export default function OrdersPage() {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const { settings: printerSettings, direct } = usePrinter();
-  const isManager = user?.role === "manager" || user?.role === "admin" || user?.role === "superadmin";
+  const { has } = usePerms();
+  const canManageOrders = has("orders", "manage");
+  const canPay = has("pos", "manage");
+  const canSeePartners = has("partners", "view");
 
   const [filter, setFilter] = useState<Filter>("active");
   const [newOpen, setNewOpen] = useState(false);
@@ -234,7 +237,7 @@ export default function OrdersPage() {
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {isManager && (
+          {canSeePartners && (
             <button
               type="button"
               onClick={() => setPartnersOpen(true)}
@@ -333,7 +336,8 @@ export default function OrdersPage() {
                         key={o.id}
                         order={o}
                         now={now}
-                        isManager={isManager}
+                        canManage={canManageOrders}
+                        canPay={canPay}
                         printerReady={direct !== null}
                         pending={advance.isPending || cancel.isPending}
                         onAdvance={(to) => advance.mutate({ orderId: o.id, to })}
@@ -356,7 +360,8 @@ export default function OrdersPage() {
                 key={o.id}
                 order={o}
                 now={now}
-                isManager={isManager}
+                canManage={canManageOrders}
+                canPay={canPay}
                 printerReady={direct !== null}
                 pending={advance.isPending || cancel.isPending}
                 onAdvance={(to) => advance.mutate({ orderId: o.id, to })}
@@ -404,7 +409,8 @@ export default function OrdersPage() {
 function TicketCard({
   order,
   now,
-  isManager,
+  canManage,
+  canPay,
   printerReady,
   pending,
   onAdvance,
@@ -414,7 +420,8 @@ function TicketCard({
 }: {
   order: BoardOrder;
   now: number;
-  isManager: boolean;
+  canManage: boolean;
+  canPay: boolean;
   printerReady: boolean;
   pending: boolean;
   onAdvance: (to: "preparing" | "ready" | "served") => void;
@@ -468,6 +475,30 @@ function TicketCard({
               className="border border-emerald-400/50 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-300"
             >
               Paid
+            </span>
+          )}
+          {order.source !== "pos" && order.settlementState && (
+            <span
+              data-testid={`order-settlement-${order.settlementState}`}
+              title={
+                order.settlementState === "settled"
+                  ? `Settled via ${order.settlementInvoiceNo ?? "invoice"}`
+                  : order.settlementState === "invoiced"
+                    ? `On ${order.settlementInvoiceNo ?? "an invoice"} — awaiting partner payment`
+                    : "The partner pays for this in a batch settlement — see Settlements"
+              }
+              className={`border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
+                order.settlementState === "settled"
+                  ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-300"
+                  : order.settlementState === "invoiced"
+                    ? "border-royal-accent/50 bg-royal-accent/10 text-royal-accent"
+                    : "border-amber-400/50 bg-amber-400/10 text-amber-300"
+              }`}
+            >
+              {ORDER_SETTLEMENT_LABEL[order.settlementState]}
+              {order.settlementInvoiceNo && order.settlementState !== "unsettled"
+                ? ` · ${order.settlementInvoiceNo}`
+                : ""}
             </span>
           )}
         </p>
@@ -563,7 +594,7 @@ function TicketCard({
 
       {/* Actions */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {next && (
+        {next && canManage && (
           <button
             type="button"
             disabled={pending}
@@ -573,7 +604,7 @@ function TicketCard({
             {next.action}
           </button>
         )}
-        {active && !paid && (
+        {active && !paid && order.source === "pos" && canPay && (
           <button
             type="button"
             onClick={onPay}
@@ -592,7 +623,7 @@ function TicketCard({
         >
           <Printer className="h-3.5 w-3.5" strokeWidth={1.75} />
         </button>
-        {isManager && !paid && order.status !== "completed" && order.status !== "cancelled" && (
+        {canManage && !paid && order.status !== "completed" && order.status !== "cancelled" && (
           <button
             type="button"
             onClick={onCancel}

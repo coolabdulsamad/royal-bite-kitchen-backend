@@ -9,6 +9,7 @@ import { menuRouter } from "./routers/menu";
 import { moneyRouter } from "./routers/money";
 import { ordersRouter } from "./routers/orders";
 import { partnersRouter } from "./routers/partners";
+import { permissionsRouter } from "./routers/permissions";
 import { reportsRouter } from "./routers/reports";
 import { salesRouter } from "./routers/sales";
 import { settlementsRouter } from "./routers/settlements";
@@ -24,6 +25,7 @@ export const appRouter = createRouter({
   menu: menuRouter,
   orders: ordersRouter,
   partners: partnersRouter,
+  permissions: permissionsRouter,
   sales: salesRouter,
   settlements: settlementsRouter,
   terminals: terminalsRouter,

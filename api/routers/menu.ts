@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { asc, eq } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { authedProcedure, roleProcedure } from "../auth/guards";
+import { authedProcedure, permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import {
@@ -14,7 +14,7 @@ import {
 } from "@db/schema";
 import { nairaToKobo } from "@contracts/money";
 
-const managerProcedure = roleProcedure("manager");
+const managerProcedure = permProcedure("menu", "manage");
 
 async function nextSortOrder(
   table: "categories" | "menu_items",

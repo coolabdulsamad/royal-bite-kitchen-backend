@@ -6,7 +6,9 @@ import { createRouter, publicQuery } from "../middleware";
 import { authedProcedure } from "../auth/guards";
 import { signStaffToken } from "../auth/jwt";
 import { getDb } from "../queries/connection";
+import { permissionsFor } from "../permissions";
 import { users, type User } from "@db/schema";
+import type { StaffRole } from "@contracts/roles";
 
 function publicUser(u: User) {
   return {
@@ -41,16 +43,22 @@ export const authRouter = createRouter({
         name: user.name,
         role: user.role,
       });
-      return { token, user: publicUser(user) };
+      const permissions = await permissionsFor(db, user.role);
+      return { token, user: { ...publicUser(user), permissions } };
     }),
 
-  me: authedProcedure.query(({ ctx }) => ({
-    id: ctx.staff.sub,
-    staffCode: ctx.staff.staffCode,
-    name: ctx.staff.name,
-    username: ctx.staff.username,
-    role: ctx.staff.role,
-  })),
+  me: authedProcedure.query(async ({ ctx }) => {
+    const db = getDb();
+    const permissions = await permissionsFor(db, ctx.staff.role as StaffRole);
+    return {
+      id: ctx.staff.sub,
+      staffCode: ctx.staff.staffCode,
+      name: ctx.staff.name,
+      username: ctx.staff.username,
+      role: ctx.staff.role,
+      permissions,
+    };
+  }),
 
   changeSecret: authedProcedure
     .input(

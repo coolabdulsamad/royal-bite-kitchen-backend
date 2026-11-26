@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { authedProcedure, roleProcedure } from "../auth/guards";
+import { authedProcedure, permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { attendanceRecords, users } from "@db/schema";
 
@@ -147,7 +147,7 @@ export const attendanceRouter = createRouter({
     }),
 
   /** Manager+ team report with per-staff totals. */
-  report: roleProcedure("manager")
+  report: permProcedure("attendanceTeam", "view")
     .input(
       z.object({
         /** Inclusive range bounds (ISO). */

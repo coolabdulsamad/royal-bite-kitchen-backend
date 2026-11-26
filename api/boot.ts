@@ -77,6 +77,16 @@ app.use("/api/*", async (c, next) => {
     });
   }
   await next();
+  // API responses must never be served from the browser cache. tRPC batches
+  // collapse several queries into one GET whose URL is identical for identical
+  // input sets, so Chrome's memory/heuristic cache can replay a stale batch
+  // (e.g. the mount-time full-set refetch) AFTER fresher narrow refetches have
+  // already landed — react-query's cache then gets overwritten with old data
+  // and the UI never shows a just-created row. no-store kills that race at the
+  // source; it costs nothing here because react-query already dedupes/caches
+  // client-side. Set AFTER next(): the tRPC route returns a raw Response built
+  // by fetchRequestHandler, so headers set before dispatch are dropped on it.
+  c.res.headers.set("Cache-Control", "no-store");
   if (allowed) {
     c.res.headers.set("Access-Control-Allow-Origin", allowed);
     c.res.headers.set("Access-Control-Allow-Credentials", "true");
