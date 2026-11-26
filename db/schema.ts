@@ -670,6 +670,11 @@ export const expenses = mysqlTable("expenses", {
   method: mysqlEnum("method", ["cash", "bank_pos", "transfer"]).notNull(),
   staffId: bigint("staff_id", { mode: "number", unsigned: true }).notNull().references(() => users.id),
   expenseAt: timestamp("expense_at").notNull().defaultNow(),
+  /** Approval workflow: only "approved" expenses hit the drawer/reports. */
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).notNull().default("approved"),
+  decidedById: bigint("decided_by_id", { mode: "number", unsigned: true }).references(() => users.id),
+  decidedAt: timestamp("decided_at"),
+  rejectReason: varchar("reject_reason", { length: 255 }),
   voidedAt: timestamp("voided_at"),
   voidedById: bigint("voided_by_id", { mode: "number", unsigned: true }).references(() => users.id),
   voidReason: varchar("void_reason", { length: 255 }),

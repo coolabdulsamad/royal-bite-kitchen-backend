@@ -43,6 +43,22 @@ export function roleProcedure(minRole: StaffRole) {
 }
 
 /**
+ * Requires the SUPERADMIN role specifically — hardcoded like the permissions
+ * domain, so the workflow rules guarded by it can never be taken away through
+ * the matrix. Injects ctx.staff.
+ */
+export const superadminProcedure = publicQuery.use(({ ctx, next }) => {
+  const staff = extractStaff(ctx);
+  if (staff.role !== "superadmin") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only the super admin can do this",
+    });
+  }
+  return next({ ctx: { ...ctx, staff } });
+});
+
+/**
  * Requires the caller's role to hold `need` (view/manage) in `domain` under
  * the effective permission matrix. Injects ctx.staff. This is the standard
  * gate for every domain-protected endpoint.

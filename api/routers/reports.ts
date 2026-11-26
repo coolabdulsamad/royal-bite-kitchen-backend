@@ -79,6 +79,7 @@ export const reportsRouter = createRouter({
       .where(
         and(
           isNull(expenses.voidedAt),
+          eq(expenses.status, "approved"),
           gte(expenses.expenseAt, fromStart),
           lt(expenses.expenseAt, toEnd),
         ),
@@ -257,6 +258,7 @@ export const reportsRouter = createRouter({
       .where(
         and(
           isNull(expenses.voidedAt),
+          eq(expenses.status, "approved"),
           gte(expenses.expenseAt, fromStart),
           lt(expenses.expenseAt, toEnd),
         ),

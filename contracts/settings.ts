@@ -1,4 +1,5 @@
 /** Restaurant-wide configuration keys stored in the `settings` table. */
+import type { ExpenseApprovalPolicy } from "./money";
 
 export const SETTING_KEYS = [
   "business_name",
@@ -6,9 +7,17 @@ export const SETTING_KEYS = [
   "business_phone",
   "receipt_footer",
   "receipt_show_address",
+  "expense_approval_required",
+  "expense_approval_threshold_kobo",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
+
+/** Keys only the superadmin may change (the approval workflow rules). */
+export const SUPERADMIN_SETTING_KEYS: readonly SettingKey[] = [
+  "expense_approval_required",
+  "expense_approval_threshold_kobo",
+];
 
 export interface BusinessSettings {
   businessName: string;
@@ -44,4 +53,19 @@ export const SETTING_LABEL: Record<SettingKey, string> = {
   business_phone: "Phone",
   receipt_footer: "Receipt footer",
   receipt_show_address: "Show address on receipts",
+  expense_approval_required: "Expense approvals",
+  expense_approval_threshold_kobo: "Approval-free amount",
 };
+
+/** Parse the expense-approval policy out of raw settings rows. */
+export function toExpenseApprovalPolicy(
+  rows: { key: string; value: string }[],
+): ExpenseApprovalPolicy {
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  const rawThreshold = Number(map.get("expense_approval_threshold_kobo") ?? "0");
+  return {
+    required: map.get("expense_approval_required") !== "false",
+    thresholdKobo:
+      Number.isFinite(rawThreshold) && rawThreshold > 0 ? Math.round(rawThreshold) : 0,
+  };
+}

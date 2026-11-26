@@ -31,6 +31,7 @@ export const PERMISSION_DOMAINS: PermissionDomain[] = [
   { key: "stock", label: "Stock", description: "Inventory items, restock/usage/waste, adjustments", hasView: true, hasManage: true },
   { key: "customers", label: "Customers", description: "Customer records, credit, repayments", hasView: true, hasManage: true },
   { key: "expenses", label: "Expenses", description: "Record and void expenses", hasView: true, hasManage: true },
+  { key: "expenseApprovals", label: "Expense approvals", description: "Approve or reject expenses waiting for sign-off", hasView: false, hasManage: true },
   { key: "drawer", label: "Cash drawer", description: "Expected cash, drawer counts, count history", hasView: true, hasManage: true },
   { key: "terminals", label: "POS terminals", description: "Bank POS terminals and their daily stats", hasView: true, hasManage: true },
   { key: "settlements", label: "Settlements", description: "Delivery-partner invoices and batch payments", hasView: true, hasManage: true },
@@ -134,6 +135,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, PermissionMap> = {
     attendanceTeam: V,
     partners: M,
     permissions: M,
+    expenseApprovals: M,
   },
   superadmin: {
     pos: M,
@@ -154,6 +156,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, PermissionMap> = {
     attendanceTeam: V,
     partners: M,
     permissions: M,
+    expenseApprovals: M,
   },
 };
 

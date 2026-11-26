@@ -11,6 +11,8 @@ export const AUDIT_ACTIONS = [
   "sale.return",
   "expense.create",
   "expense.void",
+  "expense.approve",
+  "expense.reject",
   "drawer.count",
   "stock.create",
   "stock.update",

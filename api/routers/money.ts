@@ -5,13 +5,15 @@ import { createRouter } from "../middleware";
 import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
-import { formatNaira } from "@contracts/money";
+import { formatNaira, type ExpenseApprovalPolicy } from "@contracts/money";
+import { toExpenseApprovalPolicy } from "@contracts/settings";
 import {
   customerPayments,
   drawerCounts,
   expenses,
   salePayments,
   sales,
+  settings,
   users,
 } from "@db/schema";
 import { roleHas } from "../permissions";
@@ -58,6 +60,9 @@ async function expectedCashKobo(db: ReturnType<typeof getDb>, dayStart: Date) {
     .where(
       and(
         eq(expenses.method, "cash"),
+        // Only APPROVED expenses touch the drawer — pending ones are not
+        // money-out yet, rejected ones never were.
+        eq(expenses.status, "approved"),
         gte(expenses.expenseAt, dayStart),
         isNull(expenses.voidedAt),
       ),
@@ -73,7 +78,12 @@ async function expectedCashKobo(db: ReturnType<typeof getDb>, dayStart: Date) {
   };
 }
 
-function toExpense(row: typeof expenses.$inferSelect, staffName: string | null, voidedByName: string | null) {
+function toExpense(
+  row: typeof expenses.$inferSelect,
+  staffName: string | null,
+  voidedByName: string | null,
+  decidedByName: string | null = null,
+) {
   return {
     expenseId: row.id,
     category: row.category,
@@ -82,10 +92,25 @@ function toExpense(row: typeof expenses.$inferSelect, staffName: string | null, 
     method: row.method,
     staffName,
     expenseAt: row.expenseAt.toISOString(),
+    status: row.status,
+    decidedByName,
+    decidedAt: row.decidedAt ? row.decidedAt.toISOString() : null,
+    rejectReason: row.rejectReason,
     voidedAt: row.voidedAt ? row.voidedAt.toISOString() : null,
     voidedByName,
     voidReason: row.voidReason,
   };
+}
+
+/** Read the approval policy from the settings table (defaults: required, no threshold). */
+async function approvalPolicy(db: ReturnType<typeof getDb>): Promise<ExpenseApprovalPolicy> {
+  const rows = await db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(
+      inArray(settings.key, ["expense_approval_required", "expense_approval_threshold_kobo"]),
+    );
+  return toExpenseApprovalPolicy(rows);
 }
 
 /**
@@ -112,12 +137,25 @@ export const moneyRouter = createRouter({
         if (amountKobo <= 0) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Amount must be at least ₦0.01." });
         }
+        // Approval workflow (v29): staff without the expenseApprovals grant
+        // record expenses as PENDING — they don't touch the drawer or reports
+        // until an approver signs off. Auto-approve when the policy is off,
+        // when the amount is below the configured threshold, or when the
+        // creator can approve expenses themselves.
+        const [policy, canApprove] = await Promise.all([
+          approvalPolicy(db),
+          roleHas(db, ctx.staff.role as StaffRole, "expenseApprovals", "manage"),
+        ]);
+        const autoApproved =
+          !policy.required || amountKobo < policy.thresholdKobo || canApprove;
+        const status = autoApproved ? ("approved" as const) : ("pending" as const);
         const [result] = await db.insert(expenses).values({
           category: input.category,
           amountKobo,
           note: input.note,
           method: input.method,
           staffId: ctx.staff.sub,
+          status,
           ...(input.expenseAt ? { expenseAt: input.expenseAt } : {}),
         });
         void logEvent(db, {
@@ -125,9 +163,9 @@ export const moneyRouter = createRouter({
           action: "expense.create",
           entityType: "expense",
           entityId: Number(result.insertId),
-          detail: `${input.category} · ${formatNaira(amountKobo)} · ${input.method} — ${input.note.slice(0, 120)}`,
+          detail: `${input.category} · ${formatNaira(amountKobo)} · ${input.method}${status === "pending" ? " · PENDING approval" : ""} — ${input.note.slice(0, 120)}`,
         });
-        return { ok: true, expenseId: Number(result.insertId), amountKobo };
+        return { ok: true, expenseId: Number(result.insertId), amountKobo, status };
       }),
 
     list: permProcedure("expenses", "view")
@@ -151,10 +189,12 @@ export const moneyRouter = createRouter({
           .orderBy(desc(expenses.expenseAt))
           .limit(input?.limit ?? 100);
         const voiderIds = [...new Set(rows.map((r) => r.expense.voidedById).filter(Boolean))] as number[];
-        const voiders = voiderIds.length
-          ? await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, voiderIds))
+        const deciderIds = [...new Set(rows.map((r) => r.expense.decidedById).filter(Boolean))] as number[];
+        const nameIds = [...new Set([...voiderIds, ...deciderIds])];
+        const nameRows = nameIds.length
+          ? await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, nameIds))
           : [];
-        const voiderName = new Map(voiders.map((v) => [v.id, v.name]));
+        const nameOf = new Map(nameRows.map((v) => [v.id, v.name]));
         return {
           isManager: await roleHas(
             db,
@@ -163,9 +203,83 @@ export const moneyRouter = createRouter({
             "manage",
           ),
           expenses: rows.map((r) =>
-            toExpense(r.expense, r.staffName, r.expense.voidedById ? voiderName.get(r.expense.voidedById) ?? null : null),
+            toExpense(
+              r.expense,
+              r.staffName,
+              r.expense.voidedById ? nameOf.get(r.expense.voidedById) ?? null : null,
+              r.expense.decidedById ? nameOf.get(r.expense.decidedById) ?? null : null,
+            ),
           ),
         };
+      }),
+
+    /** The approval queue — every expense waiting for sign-off, oldest first. */
+    pendingQueue: permProcedure("expenseApprovals", "manage").query(async () => {
+      const db = getDb();
+      const rows = await db
+        .select({ expense: expenses, staffName: users.name })
+        .from(expenses)
+        .leftJoin(users, eq(users.id, expenses.staffId))
+        .where(eq(expenses.status, "pending"))
+        .orderBy(expenses.expenseAt)
+        .limit(100);
+      return { pending: rows.map((r) => toExpense(r.expense, r.staffName, null)) };
+    }),
+
+    approve: permProcedure("expenseApprovals", "manage")
+      .input(z.object({ expenseId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const db = getDb();
+        return db.transaction(async (tx) => {
+          const [row] = await tx.select().from(expenses).where(eq(expenses.id, input.expenseId)).for("update");
+          if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Expense not found." });
+          if (row.status !== "pending") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `This expense is already ${row.status}.` });
+          }
+          if (row.staffId === ctx.staff.sub) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "You cannot approve your own expense — another approver must sign it off." });
+          }
+          await tx
+            .update(expenses)
+            .set({ status: "approved", decidedById: ctx.staff.sub, decidedAt: new Date() })
+            .where(eq(expenses.id, row.id));
+          void logEvent(db, {
+            actor: ctx.staff,
+            action: "expense.approve",
+            entityType: "expense",
+            entityId: row.id,
+            detail: `${row.category} · ${formatNaira(row.amountKobo)} approved — ${row.note.slice(0, 120)}`,
+          });
+          return { ok: true, expenseId: row.id };
+        });
+      }),
+
+    reject: permProcedure("expenseApprovals", "manage")
+      .input(z.object({ expenseId: z.number().int().positive(), reason: z.string().trim().min(3).max(255) }))
+      .mutation(async ({ ctx, input }) => {
+        const db = getDb();
+        return db.transaction(async (tx) => {
+          const [row] = await tx.select().from(expenses).where(eq(expenses.id, input.expenseId)).for("update");
+          if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Expense not found." });
+          if (row.status !== "pending") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `This expense is already ${row.status}.` });
+          }
+          if (row.staffId === ctx.staff.sub) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "You cannot reject your own expense — another approver must decide it." });
+          }
+          await tx
+            .update(expenses)
+            .set({ status: "rejected", decidedById: ctx.staff.sub, decidedAt: new Date(), rejectReason: input.reason })
+            .where(eq(expenses.id, row.id));
+          void logEvent(db, {
+            actor: ctx.staff,
+            action: "expense.reject",
+            entityType: "expense",
+            entityId: row.id,
+            detail: `${row.category} · ${formatNaira(row.amountKobo)} rejected — ${input.reason}`,
+          });
+          return { ok: true, expenseId: row.id };
+        });
       }),
 
     void: permProcedure("expenses", "manage")
@@ -176,6 +290,12 @@ export const moneyRouter = createRouter({
           const [row] = await tx.select().from(expenses).where(eq(expenses.id, input.expenseId)).for("update");
           if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Expense not found." });
           if (row.voidedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "This expense is already voided." });
+          if (row.status === "pending") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "This expense is still waiting for approval — it must be approved or rejected first." });
+          }
+          if (row.status === "rejected") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Rejected expenses never counted — there is nothing to void." });
+          }
           await tx
             .update(expenses)
             .set({ voidedAt: new Date(), voidedById: ctx.staff.sub, voidReason: input.reason })

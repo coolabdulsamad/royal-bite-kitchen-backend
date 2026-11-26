@@ -66,6 +66,7 @@ export const insightsRouter = createRouter({
           .where(
             and(
               sql`voided_at is null`,
+              sql`status = 'approved'`,
               sql`expense_at >= ${a}`,
               sql`expense_at < ${b}`,
             ),

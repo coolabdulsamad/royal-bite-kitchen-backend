@@ -18,3 +18,27 @@ export function formatNaira(kobo: number): string {
     })
   );
 }
+
+// ---- Expense approval workflow (v29) ----
+
+export const EXPENSE_STATUSES = ["pending", "approved", "rejected"] as const;
+export type ExpenseStatus = (typeof EXPENSE_STATUSES)[number];
+
+export const EXPENSE_STATUS_LABEL: Record<ExpenseStatus, string> = {
+  pending: "Pending approval",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
+/** How the expense-approval policy is shaped (stored as settings rows). */
+export interface ExpenseApprovalPolicy {
+  /** When false, every expense is approved immediately at creation. */
+  required: boolean;
+  /** Expenses BELOW this amount auto-approve even when required (0 = all need approval). */
+  thresholdKobo: number;
+}
+
+export const DEFAULT_EXPENSE_APPROVAL_POLICY: ExpenseApprovalPolicy = {
+  required: true,
+  thresholdKobo: 0,
+};
