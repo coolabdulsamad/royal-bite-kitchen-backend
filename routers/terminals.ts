@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { authedProcedure, permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
@@ -109,58 +109,83 @@ export const terminalsRouter = createRouter({
     }),
 
   /**
-   * Per-terminal card takings for today (manager+). Excludes returned sales
-   * so the numbers match what should be in each machine's settlement. The
-   * "unassigned" bucket catches bank_pos payments taken without a terminal
-   * pick (older sales, or terminals not yet registered).
+   * Per-terminal card takings for a date range (default: today). Excludes
+   * returned sales so the numbers match what should be in each machine's
+   * settlement. The "unassigned" bucket catches bank_pos payments taken
+   * without a terminal pick (older sales, or terminals not yet registered).
    */
-  todayStats: permProcedure("terminals", "view").query(async () => {
-    const db = getDb();
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
+  todayStats: permProcedure("terminals", "view")
+    .input(
+      z
+        .object({
+          /** YYYY-MM-DD, server-local days (inclusive). Default: today. */
+          from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+          to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        })
+        .nullish(),
+    )
+    .query(async ({ input }) => {
+      const db = getDb();
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      const from = input?.from
+        ? (() => {
+            const [y, m, d] = input.from!.split("-").map(Number);
+            return new Date(y, m - 1, d);
+          })()
+        : dayStart;
+      let to: Date | undefined;
+      if (input?.to) {
+        const [y, m, d] = input.to.split("-").map(Number);
+        to = new Date(y, m - 1, d + 1);
+      } else if (input?.from) {
+        to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 1);
+      }
 
-    const terminals = await db
-      .select()
-      .from(bankPosTerminals)
-      .orderBy(asc(bankPosTerminals.name));
+      const terminals = await db
+        .select()
+        .from(bankPosTerminals)
+        .orderBy(asc(bankPosTerminals.name));
 
-    const sums = await db
-      .select({
-        terminalId: salePayments.terminalId,
-        payments: sql<number>`count(*)`,
-        totalKobo: sql<number>`coalesce(sum(${salePayments.amountKobo}), 0)`,
-      })
-      .from(salePayments)
-      .innerJoin(sales, eq(sales.id, salePayments.saleId))
-      .where(
-        and(
-          eq(salePayments.method, "bank_pos"),
-          gte(sales.soldAt, dayStart),
-          eq(sales.status, "completed"),
-        ),
-      )
-      .groupBy(salePayments.terminalId);
+      const payConds = [
+        eq(salePayments.method, "bank_pos"),
+        gte(sales.soldAt, from),
+        eq(sales.status, "completed"),
+      ];
+      if (to) payConds.push(lt(sales.soldAt, to));
 
-    const byTerminal = new Map(sums.map((s) => [s.terminalId, s]));
-    const unassigned = byTerminal.get(null);
+      const sums = await db
+        .select({
+          terminalId: salePayments.terminalId,
+          payments: sql<number>`count(*)`,
+          totalKobo: sql<number>`coalesce(sum(${salePayments.amountKobo}), 0)`,
+        })
+        .from(salePayments)
+        .innerJoin(sales, eq(sales.id, salePayments.saleId))
+        .where(and(...payConds))
+        .groupBy(salePayments.terminalId);
 
-    return {
-      dayStart: dayStart.toISOString(),
-      terminals: terminals.map((t) => {
-        const s = byTerminal.get(t.id);
-        return {
-          id: t.id,
-          name: t.name,
-          provider: t.provider,
-          active: t.active,
-          payments: s?.payments ?? 0,
-          totalKobo: Number(s?.totalKobo ?? 0),
-        };
-      }),
-      unassigned: {
-        payments: unassigned?.payments ?? 0,
-        totalKobo: Number(unassigned?.totalKobo ?? 0),
-      },
-    };
-  }),
+      const byTerminal = new Map(sums.map((s) => [s.terminalId, s]));
+      const unassigned = byTerminal.get(null);
+
+      return {
+        dayStart: from.toISOString(),
+        dayEnd: to ? to.toISOString() : null,
+        terminals: terminals.map((t) => {
+          const s = byTerminal.get(t.id);
+          return {
+            id: t.id,
+            name: t.name,
+            provider: t.provider,
+            active: t.active,
+            payments: s?.payments ?? 0,
+            totalKobo: Number(s?.totalKobo ?? 0),
+          };
+        }),
+        unassigned: {
+          payments: unassigned?.payments ?? 0,
+          totalKobo: Number(unassigned?.totalKobo ?? 0),
+        },
+      };
+    }),
 });

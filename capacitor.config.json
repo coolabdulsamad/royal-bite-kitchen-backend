@@ -1,9 +1,0 @@
-{
-  "appId": "app.royalbitekitchen.pos",
-  "appName": "Royal Bite Kitchen",
-  "webDir": "dist/public",
-  "backgroundColor": "#0D0620",
-  "server": {
-    "androidScheme": "https"
-  }
-}

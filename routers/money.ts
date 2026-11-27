@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lt, or, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
@@ -26,6 +26,16 @@ function todayStart(): Date {
   return d;
 }
 
+/** Server-local midnight for a YYYY-MM-DD string (never `new Date(iso)` — that parses as UTC). */
+function dayStart(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+const EXPENSE_STATUS_FILTERS = ["pending", "approved", "rejected", "voided"] as const;
+
 const EXPENSE_CATEGORIES = [
   "supplies",
   "utilities",
@@ -36,37 +46,41 @@ const EXPENSE_CATEGORIES = [
   "other",
 ] as const;
 
-/** Sum today's cash movements and derive what the drawer should hold. */
-async function expectedCashKobo(db: ReturnType<typeof getDb>, dayStart: Date) {
+/** Sum cash movements in [from, to) and derive what the drawer should hold. */
+async function expectedCashKobo(db: ReturnType<typeof getDb>, from: Date, to?: Date) {
+  const saleConds = [
+    eq(salePayments.method, "cash"),
+    gte(sales.soldAt, from),
+    eq(sales.status, "completed"),
+    isNull(sales.returnedAt),
+  ];
+  const repayConds = [eq(customerPayments.method, "cash"), gte(customerPayments.createdAt, from)];
+  const expenseConds = [
+    eq(expenses.method, "cash"),
+    // Only APPROVED expenses touch the drawer — pending ones are not
+    // money-out yet, rejected ones never were.
+    eq(expenses.status, "approved"),
+    gte(expenses.expenseAt, from),
+    isNull(expenses.voidedAt),
+  ];
+  if (to) {
+    saleConds.push(lt(sales.soldAt, to));
+    repayConds.push(lt(customerPayments.createdAt, to));
+    expenseConds.push(lt(expenses.expenseAt, to));
+  }
   const [saleRows] = await db
     .select({ total: sql<number>`coalesce(sum(${salePayments.amountKobo}), 0)` })
     .from(salePayments)
     .innerJoin(sales, eq(sales.id, salePayments.saleId))
-    .where(
-      and(
-        eq(salePayments.method, "cash"),
-        gte(sales.soldAt, dayStart),
-        eq(sales.status, "completed"),
-        isNull(sales.returnedAt),
-      ),
-    );
+    .where(and(...saleConds));
   const [repayRows] = await db
     .select({ total: sql<number>`coalesce(sum(${customerPayments.amountKobo}), 0)` })
     .from(customerPayments)
-    .where(and(eq(customerPayments.method, "cash"), gte(customerPayments.createdAt, dayStart)));
+    .where(and(...repayConds));
   const [expenseRows] = await db
     .select({ total: sql<number>`coalesce(sum(${expenses.amountKobo}), 0)` })
     .from(expenses)
-    .where(
-      and(
-        eq(expenses.method, "cash"),
-        // Only APPROVED expenses touch the drawer — pending ones are not
-        // money-out yet, rejected ones never were.
-        eq(expenses.status, "approved"),
-        gte(expenses.expenseAt, dayStart),
-        isNull(expenses.voidedAt),
-      ),
-    );
+    .where(and(...expenseConds));
   const cashSales = Number(saleRows?.total ?? 0);
   const cashRepayments = Number(repayRows?.total ?? 0);
   const cashExpenses = Number(expenseRows?.total ?? 0);
@@ -175,19 +189,69 @@ export const moneyRouter = createRouter({
             limit: z.number().int().min(1).max(200).default(100),
             /** Managers see everyone's expenses by default; staff always see their own. */
             all: z.boolean().default(true),
+            /** v33: search note text, filter by category/method/status/date range, paginate. */
+            q: z.string().trim().max(120).optional(),
+            category: z.enum(EXPENSE_CATEGORIES).optional(),
+            method: z.enum(["cash", "bank_pos", "transfer"]).optional(),
+            status: z.enum(EXPENSE_STATUS_FILTERS).optional(),
+            /** YYYY-MM-DD, server-local days (inclusive). */
+            from: dateStr.optional(),
+            to: dateStr.optional(),
+            page: z.number().int().min(1).optional(),
+            pageSize: z.number().int().min(5).max(100).optional(),
           })
-          .optional(),
+          .nullish(),
       )
       .query(async ({ ctx, input }) => {
         const db = getDb();
         const showAll = input?.all ?? true;
-        const rows = await db
+
+        const conditions = [];
+        if (!showAll) conditions.push(eq(expenses.staffId, ctx.staff.sub));
+        if (input?.q) {
+          const needle = `%${input.q.replace(/[%_]/g, "")}%`;
+          const qCond = or(like(expenses.note, needle), like(expenses.category, needle));
+          if (qCond) conditions.push(qCond);
+        }
+        if (input?.category) conditions.push(eq(expenses.category, input.category));
+        if (input?.method) conditions.push(eq(expenses.method, input.method));
+        if (input?.status === "voided") conditions.push(isNotNull(expenses.voidedAt));
+        else if (input?.status === "approved") {
+          const approvedCond = and(eq(expenses.status, "approved"), isNull(expenses.voidedAt));
+          if (approvedCond) conditions.push(approvedCond);
+        } else if (input?.status) conditions.push(eq(expenses.status, input.status));
+        if (input?.from) conditions.push(gte(expenses.expenseAt, dayStart(input.from)));
+        if (input?.to) {
+          const end = dayStart(input.to);
+          end.setDate(end.getDate() + 1);
+          conditions.push(lt(expenses.expenseAt, end));
+        }
+        const where = conditions.length ? and(...conditions) : undefined;
+
+        // Paginated when page/pageSize given; otherwise the legacy flat limit.
+        const paged = input?.page !== undefined || input?.pageSize !== undefined;
+        const page = input?.page ?? 1;
+        const pageSize = input?.pageSize ?? 25;
+
+        const baseQuery = db
           .select({ expense: expenses, staffName: users.name })
           .from(expenses)
           .leftJoin(users, eq(users.id, expenses.staffId))
-          .where(showAll ? undefined : eq(expenses.staffId, ctx.staff.sub))
-          .orderBy(desc(expenses.expenseAt))
-          .limit(input?.limit ?? 100);
+          .where(where)
+          .orderBy(desc(expenses.expenseAt), desc(expenses.id));
+
+        const [rows, countRows, sumRows] = await Promise.all([
+          paged ? baseQuery.limit(pageSize).offset((page - 1) * pageSize) : baseQuery.limit(input?.limit ?? 100),
+          db.select({ n: sql<number>`count(*)` }).from(expenses).where(where),
+          // Money actually gone within the current filter: approved and not voided.
+          db
+            .select({ total: sql<number>`coalesce(sum(${expenses.amountKobo}), 0)` })
+            .from(expenses)
+            .where(
+              and(where, eq(expenses.status, "approved"), isNull(expenses.voidedAt)),
+            ),
+        ]);
+
         const voiderIds = [...new Set(rows.map((r) => r.expense.voidedById).filter(Boolean))] as number[];
         const deciderIds = [...new Set(rows.map((r) => r.expense.decidedById).filter(Boolean))] as number[];
         const nameIds = [...new Set([...voiderIds, ...deciderIds])];
@@ -210,6 +274,10 @@ export const moneyRouter = createRouter({
               r.expense.decidedById ? nameOf.get(r.expense.decidedById) ?? null : null,
             ),
           ),
+          total: Number(countRows[0]?.n ?? 0),
+          approvedTotalKobo: Number(sumRows[0]?.total ?? 0),
+          page,
+          pageSize,
         };
       }),
 
@@ -314,10 +382,30 @@ export const moneyRouter = createRouter({
   }),
 
   drawer: createRouter({
-    summary: permProcedure("drawer", "view").query(async () => {
-      const db = getDb();
-      return expectedCashKobo(db, todayStart());
-    }),
+    summary: permProcedure("drawer", "view")
+      .input(
+        z
+          .object({
+            /** YYYY-MM-DD, server-local days (inclusive). Default: today. */
+            from: dateStr.optional(),
+            to: dateStr.optional(),
+          })
+          .nullish(),
+      )
+      .query(async ({ input }) => {
+        const db = getDb();
+        const from = input?.from ? dayStart(input.from) : todayStart();
+        let to: Date | undefined;
+        if (input?.to) {
+          to = dayStart(input.to);
+          to.setDate(to.getDate() + 1);
+        } else if (input?.from) {
+          to = new Date(from);
+          to.setDate(to.getDate() + 1);
+        }
+        const summary = await expectedCashKobo(db, from, to);
+        return { ...summary, from: from.toISOString(), to: to ? to.toISOString() : null };
+      }),
 
     count: permProcedure("drawer", "manage")
       .input(z.object({ counted: z.number().min(0).max(100_000_000), note: z.string().trim().max(255).optional() }))
@@ -349,15 +437,36 @@ export const moneyRouter = createRouter({
       }),
 
     counts: permProcedure("drawer", "view")
-      .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }).optional())
+      .input(
+        z
+          .object({
+            limit: z.number().int().min(1).max(100).default(30),
+            /** YYYY-MM-DD, server-local days (inclusive). */
+            from: dateStr.optional(),
+            to: dateStr.optional(),
+          })
+          .nullish(),
+      )
       .query(async ({ input }) => {
         const db = getDb();
-        const rows = await db
-          .select({ count: drawerCounts, staffName: users.name })
-          .from(drawerCounts)
-          .leftJoin(users, eq(users.id, drawerCounts.countedById))
-          .orderBy(desc(drawerCounts.createdAt))
-          .limit(input?.limit ?? 30);
+        const conditions = [];
+        if (input?.from) conditions.push(gte(drawerCounts.createdAt, dayStart(input.from)));
+        if (input?.to) {
+          const end = dayStart(input.to);
+          end.setDate(end.getDate() + 1);
+          conditions.push(lt(drawerCounts.createdAt, end));
+        }
+        const where = conditions.length ? and(...conditions) : undefined;
+        const [rows, countRows] = await Promise.all([
+          db
+            .select({ count: drawerCounts, staffName: users.name })
+            .from(drawerCounts)
+            .leftJoin(users, eq(users.id, drawerCounts.countedById))
+            .where(where)
+            .orderBy(desc(drawerCounts.createdAt))
+            .limit(input?.limit ?? 30),
+          db.select({ n: sql<number>`count(*)` }).from(drawerCounts).where(where),
+        ]);
         return {
           counts: rows.map((r) => ({
             countId: r.count.id,
@@ -368,6 +477,7 @@ export const moneyRouter = createRouter({
             staffName: r.staffName,
             countedAt: r.count.createdAt.toISOString(),
           })),
+          total: Number(countRows[0]?.n ?? 0),
         };
       }),
   }),

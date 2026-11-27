@@ -1,0 +1,25 @@
+ALTER TABLE `customers` ADD `email` varchar(120);--> statement-breakpoint
+ALTER TABLE `customers` ADD `gender` varchar(10);--> statement-breakpoint
+ALTER TABLE `customers` ADD `date_of_birth` date;--> statement-breakpoint
+ALTER TABLE `customers` ADD `address` varchar(255);--> statement-breakpoint
+ALTER TABLE `customers` ADD `city` varchar(60);--> statement-breakpoint
+ALTER TABLE `customers` ADD `state` varchar(60);--> statement-breakpoint
+ALTER TABLE `customers` ADD `alternate_phone` varchar(40);--> statement-breakpoint
+ALTER TABLE `customers` ADD `occupation` varchar(80);--> statement-breakpoint
+ALTER TABLE `customers` ADD `guarantor_name` varchar(120);--> statement-breakpoint
+ALTER TABLE `customers` ADD `guarantor_phone` varchar(40);--> statement-breakpoint
+ALTER TABLE `customers` ADD `referral_source` varchar(80);--> statement-breakpoint
+ALTER TABLE `users` ADD `phone` varchar(40);--> statement-breakpoint
+ALTER TABLE `users` ADD `email` varchar(120);--> statement-breakpoint
+ALTER TABLE `users` ADD `gender` varchar(10);--> statement-breakpoint
+ALTER TABLE `users` ADD `date_of_birth` date;--> statement-breakpoint
+ALTER TABLE `users` ADD `address` varchar(255);--> statement-breakpoint
+ALTER TABLE `users` ADD `state_of_origin` varchar(60);--> statement-breakpoint
+ALTER TABLE `users` ADD `employment_date` date;--> statement-breakpoint
+ALTER TABLE `users` ADD `guarantor_name` varchar(120);--> statement-breakpoint
+ALTER TABLE `users` ADD `guarantor_phone` varchar(40);--> statement-breakpoint
+ALTER TABLE `users` ADD `guarantor_address` varchar(255);--> statement-breakpoint
+ALTER TABLE `users` ADD `next_of_kin_name` varchar(120);--> statement-breakpoint
+ALTER TABLE `users` ADD `next_of_kin_phone` varchar(40);--> statement-breakpoint
+ALTER TABLE `users` ADD `bank_name` varchar(80);--> statement-breakpoint
+ALTER TABLE `users` ADD `bank_account_number` varchar(20);
