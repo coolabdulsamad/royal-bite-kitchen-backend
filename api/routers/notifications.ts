@@ -1,8 +1,8 @@
-import { desc, eq, gte, inArray } from "drizzle-orm";
+import { desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { authedProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
-import { expenses, orderItems, orders, users } from "@db/schema";
+import { expenses, orderItems, orders, stockItems, users } from "@db/schema";
 import { roleHas } from "../permissions";
 import type { StaffRole } from "@contracts/roles";
 
@@ -16,9 +16,10 @@ import type { StaffRole } from "@contracts/roles";
 export const notificationsRouter = createRouter({
   feed: authedProcedure.query(async ({ ctx }) => {
     const db = getDb();
-    const [canOrders, canApprovals] = await Promise.all([
+    const [canOrders, canApprovals, canStock] = await Promise.all([
       roleHas(db, ctx.staff.role as StaffRole, "orders", "view"),
       roleHas(db, ctx.staff.role as StaffRole, "expenseApprovals", "manage"),
+      roleHas(db, ctx.staff.role as StaffRole, "stock", "view"),
     ]);
 
     // New-order radar: the last two hours is plenty for "just came in".
@@ -73,6 +74,25 @@ export const notificationsRouter = createRouter({
           .limit(20)
       : [];
 
+    // Low-stock radar: active items at/below their warning level, most
+    // critical (furthest below threshold) first. State-based, not an event.
+    const lowStockRows = canStock
+      ? await db
+          .select({
+            id: stockItems.id,
+            name: stockItems.name,
+            unit: stockItems.unit,
+            quantityMilli: stockItems.quantityMilli,
+            lowStockAtMilli: stockItems.lowStockAtMilli,
+          })
+          .from(stockItems)
+          .where(
+            sql`${stockItems.active} AND ${stockItems.lowStockAtMilli} IS NOT NULL AND ${stockItems.quantityMilli} <= ${stockItems.lowStockAtMilli}`,
+          )
+          .orderBy(sql`${stockItems.quantityMilli} - ${stockItems.lowStockAtMilli}`)
+          .limit(20)
+      : [];
+
     return {
       now: new Date().toISOString(),
       orders: orderRows.map((r) => {
@@ -98,6 +118,13 @@ export const notificationsRouter = createRouter({
         amountKobo: r.amountKobo,
         staffName: r.staffName ?? null,
         expenseAt: r.expenseAt.toISOString(),
+      })),
+      lowStock: lowStockRows.map((r) => ({
+        itemId: r.id,
+        name: r.name,
+        unit: r.unit,
+        quantityMilli: r.quantityMilli,
+        lowStockAtMilli: r.lowStockAtMilli ?? 0,
       })),
     };
   }),

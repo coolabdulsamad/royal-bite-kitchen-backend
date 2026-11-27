@@ -1,13 +1,20 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gte, like, sql } from "drizzle-orm";
+import { and, desc, eq, gte, like, lt, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
 import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import { stockItems, stockMovements, users } from "@db/schema";
 import { nairaToKobo } from "@contracts/money";
-import { toMilli } from "@contracts/stock";
+import { STOCK_MOVEMENT_TYPES, toMilli } from "@contracts/stock";
+
+/** Server-local calendar day bounds for a YYYY-MM-DD string (a raw
+ *  `new Date("2026-11-27")` parses as UTC midnight and shifts the day). */
+function dayStart(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
 
 /**
  * Stock (ingredients & supplies). Everyone can see levels and record
@@ -327,6 +334,158 @@ export const stockRouter = createRouter({
         detail: `Adjustment · ${adjusted.itemName} set to ${(adjusted.balanceAfterMilli / 1000).toLocaleString("en-NG")} ${adjusted.unit} — ${input.note}`,
       });
       return { ok: true as const, itemId: adjusted.itemId, balanceAfterMilli: adjusted.balanceAfterMilli };
+    }),
+
+  /**
+   * KPI tiles for the Stock page header. One round of aggregate queries —
+   * never loop per item against the remote database.
+   */
+  summary: permProcedure("stock", "view").query(async () => {
+    const db = getDb();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [itemStats, todayStats] = await Promise.all([
+      db
+        .select({
+          totalItems: sql<number>`count(*)`,
+          lowCount: sql<number>`coalesce(sum(${stockItems.lowStockAtMilli} IS NOT NULL AND ${stockItems.quantityMilli} <= ${stockItems.lowStockAtMilli}), 0)`,
+          outCount: sql<number>`coalesce(sum(${stockItems.quantityMilli} <= 0), 0)`,
+          stockValueKobo: sql<number>`coalesce(sum(CASE WHEN ${stockItems.costPerUnitKobo} IS NOT NULL AND ${stockItems.quantityMilli} > 0 THEN ${stockItems.quantityMilli} * ${stockItems.costPerUnitKobo} / 1000 ELSE 0 END), 0)`,
+        })
+        .from(stockItems)
+        .where(eq(stockItems.active, true)),
+      db
+        .select({
+          movementsToday: sql<number>`count(*)`,
+          wasteToday: sql<number>`coalesce(sum(${stockMovements.type} = 'waste'), 0)`,
+          restockSpendTodayKobo: sql<number>`coalesce(sum(CASE WHEN ${stockMovements.type} = 'restock' THEN ${stockMovements.totalCostKobo} ELSE 0 END), 0)`,
+        })
+        .from(stockMovements)
+        .where(gte(stockMovements.createdAt, todayStart)),
+    ]);
+
+    const s = itemStats[0];
+    const t = todayStats[0];
+    return {
+      totalItems: Number(s?.totalItems ?? 0),
+      lowCount: Number(s?.lowCount ?? 0),
+      outOfStockCount: Number(s?.outCount ?? 0),
+      stockValueKobo: Math.round(Number(s?.stockValueKobo ?? 0)),
+      movementsToday: Number(t?.movementsToday ?? 0),
+      wasteToday: Number(t?.wasteToday ?? 0),
+      restockSpendTodayKobo: Math.round(Number(t?.restockSpendTodayKobo ?? 0)),
+    };
+  }),
+
+  /**
+   * One stock item with its filtered + paginated movement ledger and
+   * aggregates over the CURRENT filters — powers the full item page
+   * (KPI cards, filters, print view).
+   */
+  detail: permProcedure("stock", "view")
+    .input(
+      z.object({
+        itemId: z.number().int().positive(),
+        type: z.enum(STOCK_MOVEMENT_TYPES).optional(),
+        staffId: z.number().int().positive().optional(),
+        /** YYYY-MM-DD, server-local day. */
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        page: z.number().int().min(1).default(1),
+        pageSize: z.number().int().min(5).max(100).default(25),
+      }),
+    )
+    .query(async ({ input }) => {
+      const db = getDb();
+      const [item] = await db
+        .select({
+          id: stockItems.id,
+          name: stockItems.name,
+          unit: stockItems.unit,
+          quantityMilli: stockItems.quantityMilli,
+          lowStockAtMilli: stockItems.lowStockAtMilli,
+          costPerUnitKobo: stockItems.costPerUnitKobo,
+          active: stockItems.active,
+          createdAt: stockItems.createdAt,
+          createdByName: users.name,
+        })
+        .from(stockItems)
+        .leftJoin(users, eq(users.id, stockItems.createdById))
+        .where(eq(stockItems.id, input.itemId))
+        .limit(1);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Stock item not found" });
+
+      const conditions = [eq(stockMovements.itemId, input.itemId)];
+      if (input.type) conditions.push(eq(stockMovements.type, input.type));
+      if (input.staffId) conditions.push(eq(stockMovements.staffId, input.staffId));
+      if (input.from) conditions.push(gte(stockMovements.createdAt, dayStart(input.from)));
+      if (input.to) {
+        const end = dayStart(input.to);
+        end.setDate(end.getDate() + 1);
+        conditions.push(lt(stockMovements.createdAt, end));
+      }
+      const where = and(...conditions);
+
+      const [totalsRows, countRows, rows] = await Promise.all([
+        db
+          .select({
+            restockedMilli: sql<number>`coalesce(sum(CASE WHEN ${stockMovements.type} = 'restock' THEN ${stockMovements.deltaMilli} ELSE 0 END), 0)`,
+            usageMilli: sql<number>`coalesce(sum(CASE WHEN ${stockMovements.type} = 'usage' THEN -${stockMovements.deltaMilli} ELSE 0 END), 0)`,
+            wasteMilli: sql<number>`coalesce(sum(CASE WHEN ${stockMovements.type} = 'waste' THEN -${stockMovements.deltaMilli} ELSE 0 END), 0)`,
+            adjustmentNetMilli: sql<number>`coalesce(sum(CASE WHEN ${stockMovements.type} = 'adjustment' THEN ${stockMovements.deltaMilli} ELSE 0 END), 0)`,
+            spendKobo: sql<number>`coalesce(sum(${stockMovements.totalCostKobo}), 0)`,
+          })
+          .from(stockMovements)
+          .where(where),
+        db
+          .select({ n: sql<number>`count(*)` })
+          .from(stockMovements)
+          .where(where),
+        db
+          .select({
+            id: stockMovements.id,
+            type: stockMovements.type,
+            deltaMilli: stockMovements.deltaMilli,
+            balanceAfterMilli: stockMovements.balanceAfterMilli,
+            totalCostKobo: stockMovements.totalCostKobo,
+            note: stockMovements.note,
+            createdAt: stockMovements.createdAt,
+            staffId: stockMovements.staffId,
+            staffName: users.name,
+          })
+          .from(stockMovements)
+          .innerJoin(users, eq(users.id, stockMovements.staffId))
+          .where(where)
+          .orderBy(desc(stockMovements.createdAt), desc(stockMovements.id))
+          .limit(input.pageSize)
+          .offset((input.page - 1) * input.pageSize),
+      ]);
+
+      const t = totalsRows[0];
+      return {
+        item: {
+          ...item,
+          createdAt: item.createdAt.toISOString(),
+          createdByName: item.createdByName ?? null,
+          low: item.lowStockAtMilli !== null && item.quantityMilli <= item.lowStockAtMilli,
+          stockValueKobo:
+            item.costPerUnitKobo !== null && item.quantityMilli > 0
+              ? Math.round((item.quantityMilli * item.costPerUnitKobo) / 1000)
+              : 0,
+        },
+        totals: {
+          restockedMilli: Number(t?.restockedMilli ?? 0),
+          usageMilli: Number(t?.usageMilli ?? 0),
+          wasteMilli: Number(t?.wasteMilli ?? 0),
+          adjustmentNetMilli: Number(t?.adjustmentNetMilli ?? 0),
+          spendKobo: Math.round(Number(t?.spendKobo ?? 0)),
+        },
+        movements: rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+        total: Number(countRows[0]?.n ?? 0),
+        page: input.page,
+        pageSize: input.pageSize,
+      };
     }),
 
   history: permProcedure("stock", "view")

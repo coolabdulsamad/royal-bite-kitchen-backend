@@ -2,6 +2,9 @@
  *  fractional amounts like 2.5 kg stay exact. These helpers are the ONLY
  *  conversion points. */
 
+export const STOCK_MOVEMENT_TYPES = ["restock", "usage", "waste", "adjustment"] as const;
+export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
+
 export const STOCK_MOVEMENT_LABEL: Record<string, string> = {
   restock: "Restock",
   usage: "Usage",
