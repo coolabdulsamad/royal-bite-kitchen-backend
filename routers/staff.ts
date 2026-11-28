@@ -69,7 +69,16 @@ const staffProfileInput = {
   nextOfKinPhone: z.string().trim().max(40).nullish(),
   bankName: z.string().trim().max(80).nullish(),
   bankAccountNumber: z.string().trim().max(20).nullish(),
+  salaryNote: z.string().trim().max(255).nullish(),
 } as const;
+
+/** Monthly salary in NAIRA — transformed to kobo; null clears it. */
+const salaryInput = z
+  .number()
+  .min(0)
+  .max(100_000_000)
+  .nullish()
+  .transform((n) => (n == null ? null : Math.round(n * 100)));
 
 const PROFILE_FIELD_NAMES = Object.keys(staffProfileInput) as Array<
   keyof typeof staffProfileInput
@@ -104,6 +113,8 @@ function fullUser(u: User) {
     nextOfKinPhone: u.nextOfKinPhone,
     bankName: u.bankName,
     bankAccountNumber: u.bankAccountNumber,
+    salaryKobo: u.salaryKobo,
+    salaryNote: u.salaryNote,
   };
 }
 
@@ -152,6 +163,7 @@ export const staffRouter = createRouter({
           .regex(/^[A-Za-z0-9-]+$/),
         role: z.enum(STAFF_ROLES),
         secret: z.string().min(4).max(60),
+        salaryKobo: salaryInput,
         ...staffProfileInput,
       }),
     )
@@ -180,6 +192,7 @@ export const staffRouter = createRouter({
         role: input.role,
         secretHash: bcrypt.hashSync(input.secret, 10),
         ...profileValues(input),
+        ...(input.salaryKobo !== undefined ? { salaryKobo: input.salaryKobo } : {}),
       });
       void logEvent(db, {
         actor: ctx.staff,
@@ -215,6 +228,7 @@ export const staffRouter = createRouter({
           .regex(/^[A-Za-z0-9-]+$/)
           .optional(),
         role: z.enum(STAFF_ROLES).optional(),
+        salaryKobo: salaryInput,
         ...staffProfileInput,
       }),
     )
@@ -262,6 +276,7 @@ export const staffRouter = createRouter({
           ...(input.staffCode !== undefined ? { staffCode: input.staffCode } : {}),
           ...(input.role !== undefined ? { role: input.role } : {}),
           ...profileValues(input),
+          ...(input.salaryKobo !== undefined ? { salaryKobo: input.salaryKobo } : {}),
         })
         .where(eq(users.id, input.id));
       void logEvent(db, {

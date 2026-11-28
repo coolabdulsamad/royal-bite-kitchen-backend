@@ -36,7 +36,8 @@ export interface LedgerRow {
     | "money_in"
     | "money_out"
     | "adjustment"
-    | "credit_repayment";
+    | "credit_repayment"
+    | "payroll";
   refType?: string;
   refId?: string;
   note?: string;

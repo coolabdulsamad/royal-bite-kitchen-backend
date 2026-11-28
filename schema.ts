@@ -44,6 +44,9 @@ export const users = mysqlTable("users", {
   nextOfKinPhone: varchar("next_of_kin_phone", { length: 40 }),
   bankName: varchar("bank_name", { length: 80 }),
   bankAccountNumber: varchar("bank_account_number", { length: 20 }),
+  /** Monthly gross salary in kobo — the salary structure payroll runs start from. */
+  salaryKobo: int("salary_kobo"),
+  salaryNote: varchar("salary_note", { length: 255 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 });
@@ -821,6 +824,7 @@ export const accountTransactions = mysqlTable(
       "money_out",
       "adjustment",
       "credit_repayment",
+      "payroll",
     ]).notNull(),
     /** What business record caused this row, e.g. ("sale", "RB-000123"). */
     refType: varchar("ref_type", { length: 30 }),
@@ -853,6 +857,71 @@ export const accountTransactionsRelations = relations(accountTransactions, ({ on
   }),
   staff: one(users, {
     fields: [accountTransactions.staffId],
+    references: [users.id],
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// Payroll (v37) — a run = one month of salaries. Draft runs can be adjusted
+// per staff (bonus/deduction); paying a run posts one ledger out-row per staff
+// member from the chosen account, so salaries reduce real balances.
+// ---------------------------------------------------------------------------
+export const payrollRuns = mysqlTable(
+  "payroll_runs",
+  {
+    id: serial("id").primaryKey(),
+    /** "YYYY-MM" — the month this run pays for. */
+    period: varchar("period", { length: 7 }).notNull(),
+    status: mysqlEnum("status", ["draft", "paid", "cancelled"]).notNull().default("draft"),
+    totalKobo: int("total_kobo").notNull().default(0),
+    /** Account the salaries were paid from (set when paid). */
+    accountId: bigint("account_id", { mode: "number", unsigned: true }).references(() => accounts.id),
+    note: varchar("note", { length: 255 }),
+    createdById: bigint("created_by_id", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    paidAt: timestamp("paid_at"),
+    cancelledAt: timestamp("cancelled_at"),
+  },
+  (table) => [
+    index("pr_period_idx").on(table.period),
+    index("pr_status_idx").on(table.status),
+  ],
+);
+
+export const payrollItems = mysqlTable(
+  "payroll_items",
+  {
+    id: serial("id").primaryKey(),
+    runId: bigint("run_id", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => payrollRuns.id),
+    staffId: bigint("staff_id", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => users.id),
+    baseKobo: int("base_kobo").notNull(),
+    bonusKobo: int("bonus_kobo").notNull().default(0),
+    deductionKobo: int("deduction_kobo").notNull().default(0),
+    /** base + bonus − deduction, recomputed on every edit. */
+    netKobo: int("net_kobo").notNull(),
+    note: varchar("note", { length: 255 }),
+  },
+  (table) => [
+    uniqueIndex("pi_run_staff_unique").on(table.runId, table.staffId),
+  ],
+);
+
+export type PayrollRun = typeof payrollRuns.$inferSelect;
+export type PayrollItem = typeof payrollItems.$inferSelect;
+
+export const payrollItemsRelations = relations(payrollItems, ({ one }) => ({
+  run: one(payrollRuns, {
+    fields: [payrollItems.runId],
+    references: [payrollRuns.id],
+  }),
+  staff: one(users, {
+    fields: [payrollItems.staffId],
     references: [users.id],
   }),
 }));

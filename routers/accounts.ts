@@ -38,6 +38,7 @@ const LEDGER_KINDS = [
   "money_out",
   "adjustment",
   "credit_repayment",
+  "payroll",
 ] as const;
 
 const amountField = z

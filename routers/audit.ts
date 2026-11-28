@@ -35,6 +35,9 @@ export const AUDIT_ACTIONS = [
   "account.money_in",
   "account.money_out",
   "account.transfer",
+  "payroll.generate",
+  "payroll.pay",
+  "payroll.cancel",
   "permissions.update",
 ] as const;
 
