@@ -7,6 +7,7 @@ import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
 import { formatNaira } from "@contracts/money";
 import { customerPayments, customers, sales, users } from "@db/schema";
+import { postToLedger } from "../ledger";
 import { nairaToKobo } from "@contracts/money";
 
 /** MySQL duplicate-key errors arrive wrapped by drizzle — walk the cause chain. */
@@ -341,6 +342,17 @@ export const customersRouter = createRouter({
           note: input.note || null,
           receivedById: ctx.staff.sub,
         });
+        // Money ledger (v36): the repayment is real money coming in.
+        await postToLedger(tx, [{
+          method: input.method,
+          direction: "in",
+          amountKobo,
+          kind: "credit_repayment",
+          refType: "customer",
+          refId: String(input.customerId),
+          note: `Debt repayment — ${customer.name}`,
+          staffId: ctx.staff.sub,
+        }]);
         return {
           ok: true as const,
           customerId: input.customerId,

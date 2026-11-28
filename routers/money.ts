@@ -17,6 +17,7 @@ import {
   users,
 } from "@db/schema";
 import { roleHas } from "../permissions";
+import { postToLedger } from "../ledger";
 import type { StaffRole } from "@contracts/roles";
 
 /** Server-local midnight today — same convention as terminals.todayStats. */
@@ -172,6 +173,20 @@ export const moneyRouter = createRouter({
           status,
           ...(input.expenseAt ? { expenseAt: input.expenseAt } : {}),
         });
+        // Money ledger (v36): an approved expense is money leaving the
+        // account that paid it. Pending expenses post on approval instead.
+        if (status === "approved") {
+          await postToLedger(db, [{
+            method: input.method,
+            direction: "out",
+            amountKobo,
+            kind: "expense",
+            refType: "expense",
+            refId: String(Number(result.insertId)),
+            note: `${input.category} — ${input.note.slice(0, 100)}`,
+            staffId: ctx.staff.sub,
+          }]);
+        }
         void logEvent(db, {
           actor: ctx.staff,
           action: "expense.create",
@@ -194,6 +209,8 @@ export const moneyRouter = createRouter({
             category: z.enum(EXPENSE_CATEGORIES).optional(),
             method: z.enum(["cash", "bank_pos", "transfer"]).optional(),
             status: z.enum(EXPENSE_STATUS_FILTERS).optional(),
+            /** v36: filter to one staff member's expenses (any role with view). */
+            staffId: z.number().int().positive().optional(),
             /** YYYY-MM-DD, server-local days (inclusive). */
             from: dateStr.optional(),
             to: dateStr.optional(),
@@ -208,6 +225,11 @@ export const moneyRouter = createRouter({
 
         const conditions = [];
         if (!showAll) conditions.push(eq(expenses.staffId, ctx.staff.sub));
+        // v36: explicit per-person filter — narrows even a manager's "all" view
+        // to one staff member (who recorded the expense).
+        if (input?.staffId !== undefined) {
+          conditions.push(eq(expenses.staffId, input.staffId));
+        }
         if (input?.q) {
           const needle = `%${input.q.replace(/[%_]/g, "")}%`;
           const qCond = or(like(expenses.note, needle), like(expenses.category, needle));
@@ -311,6 +333,17 @@ export const moneyRouter = createRouter({
             .update(expenses)
             .set({ status: "approved", decidedById: ctx.staff.sub, decidedAt: new Date() })
             .where(eq(expenses.id, row.id));
+          // Money ledger (v36): approval is the moment the money leaves.
+          await postToLedger(tx, [{
+            method: row.method,
+            direction: "out",
+            amountKobo: row.amountKobo,
+            kind: "expense",
+            refType: "expense",
+            refId: String(row.id),
+            note: `${row.category} — ${row.note.slice(0, 100)}`,
+            staffId: row.staffId,
+          }]);
           void logEvent(db, {
             actor: ctx.staff,
             action: "expense.approve",
@@ -368,6 +401,18 @@ export const moneyRouter = createRouter({
             .update(expenses)
             .set({ voidedAt: new Date(), voidedById: ctx.staff.sub, voidReason: input.reason })
             .where(eq(expenses.id, row.id));
+          // Money ledger (v36): voiding refunds the money back into the
+          // account — a reversing in-row, the ledger stays immutable.
+          await postToLedger(tx, [{
+            method: row.method,
+            direction: "in",
+            amountKobo: row.amountKobo,
+            kind: "expense",
+            refType: "expense_void",
+            refId: String(row.id),
+            note: `Void reversal — ${row.note.slice(0, 90)}`,
+            staffId: ctx.staff.sub,
+          }]);
           void logEvent(db, {
             actor: ctx.staff,
             action: "expense.void",

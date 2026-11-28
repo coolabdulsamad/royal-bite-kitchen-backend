@@ -22,6 +22,7 @@ import { roleHas, roleHasAny } from "../permissions";
 import type { StaffRole } from "@contracts/roles";
 import { priceOrderLines, type ModifierSnapshot } from "../pricing";
 import { orderPaidGuard } from "./orders";
+import { postToLedger } from "../ledger";
 
 /** Marker so the catch block can tell "order already closed" from DB failures. */
 class OrderClosedError extends Error {}
@@ -458,6 +459,18 @@ export const salesRouter = createRouter({
               terminalId: p.terminalId ?? null,
             });
           }
+          // Money ledger (v36): every payment lands in its account (cash →
+          // Cash on hand, transfer → Bank, bank_pos → POS settlements).
+          await postToLedger(tx, payments.map((p) => ({
+            method: p.method,
+            direction: "in" as const,
+            amountKobo: p.amountKobo,
+            kind: "sale_payment" as const,
+            refType: "sale",
+            refId: receiptNo,
+            note: `Receipt ${receiptNo}`,
+            staffId: ctx.staff.sub,
+          })));
           // Credit sale: raise the customer's balance atomically with the
           // sale itself. The active-guard catches a customer deactivated
           // between checkout and save — the whole sale rolls back.
@@ -837,6 +850,25 @@ export const salesRouter = createRouter({
             })
             .where(eq(customers.id, sale.customerId));
         }
+        // Money ledger (v36): the refund physically leaves the account the
+        // payment landed in — reversing out-row per original payment.
+        const originalPayments = await tx
+          .select({
+            method: salePayments.method,
+            amountKobo: salePayments.amountKobo,
+          })
+          .from(salePayments)
+          .where(eq(salePayments.saleId, sale.id));
+        await postToLedger(tx, originalPayments.map((p) => ({
+          method: p.method,
+          direction: "out" as const,
+          amountKobo: p.amountKobo,
+          kind: "sale_payment" as const,
+          refType: "sale_return",
+          refId: sale.receiptNo,
+          note: `Return of receipt ${sale.receiptNo}`,
+          staffId: ctx.staff.sub,
+        })));
       });
       void logEvent(getDb(), {
         actor: ctx.staff,

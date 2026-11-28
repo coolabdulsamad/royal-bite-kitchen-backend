@@ -1,4 +1,5 @@
 import { createRouter, publicQuery } from "./middleware";
+import { accountsRouter } from "./routers/accounts";
 import { authRouter } from "./routers/auth";
 import { attendanceRouter } from "./routers/attendance";
 import { auditRouter } from "./routers/audit";
@@ -32,6 +33,7 @@ export const appRouter = createRouter({
   settlements: settlementsRouter,
   terminals: terminalsRouter,
   money: moneyRouter,
+  accounts: accountsRouter,
   reports: reportsRouter,
   insights: insightsRouter,
   audit: auditRouter,

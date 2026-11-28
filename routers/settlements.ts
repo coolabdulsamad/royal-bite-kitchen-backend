@@ -17,6 +17,7 @@ import { createRouter } from "../middleware";
 import { permProcedure } from "../auth/guards";
 import { getDb } from "../queries/connection";
 import { logEvent } from "../audit";
+import { postToLedger } from "../ledger";
 import {
   expenses,
   orderItems,
@@ -650,6 +651,17 @@ export const settlementsRouter = createRouter({
             amountKobo: o.totalKobo,
             reference: inv.invoiceNo,
           });
+          // Money ledger (v36): the partner's batch payment comes in.
+          await postToLedger(tx, [{
+            method: input.method,
+            direction: "in",
+            amountKobo: o.totalKobo,
+            kind: "sale_payment",
+            refType: "sale",
+            refId: receiptNo,
+            note: `Settlement ${inv.invoiceNo} — ${o.orderNo}`,
+            staffId: ctx.staff.sub,
+          }]);
           await tx
             .update(orders)
             .set({ saleId: saleRow.id, updatedAt: new Date() })
@@ -670,6 +682,18 @@ export const settlementsRouter = createRouter({
             })
             .$returningId();
           commissionExpenseId = exp.id;
+          // Money ledger (v36): the commission is money that never reaches
+          // us — booked as an out-flow from the account the partner paid into.
+          await postToLedger(tx, [{
+            method: "transfer",
+            direction: "out",
+            amountKobo: inv.commissionKobo,
+            kind: "expense",
+            refType: "expense",
+            refId: String(exp.id),
+            note: `${inv.partnerName} commission — ${inv.invoiceNo}`,
+            staffId: ctx.staff.sub,
+          }]);
         }
 
         await tx

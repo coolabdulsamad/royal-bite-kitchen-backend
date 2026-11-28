@@ -785,3 +785,74 @@ export const rolePermissions = mysqlTable(
     uniqueIndex("rp_role_domain_unique").on(table.role, table.domain),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Step 35: Financial accounts & ledger (v36) — every naira the business holds
+// lives in an ACCOUNT (cash on hand, bank, POS settlements). Every movement
+// of money writes an immutable ledger row; balances are always derived by
+// SUM, never stored — so the books can never drift from the history.
+// ---------------------------------------------------------------------------
+export const accounts = mysqlTable("accounts", {
+  id: serial("id").primaryKey(),
+  /** Stable machine code — CASH, BANK, POS. */
+  code: varchar("code", { length: 20 }).notNull(),
+  name: varchar("name", { length: 80 }).notNull(),
+  type: mysqlEnum("type", ["cash", "bank", "pos"]).notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("accounts_code_unique").on(table.code),
+]);
+
+export const accountTransactions = mysqlTable(
+  "account_transactions",
+  {
+    id: serial("id").primaryKey(),
+    accountId: bigint("account_id", { mode: "number", unsigned: true })
+      .notNull()
+      .references(() => accounts.id),
+    direction: mysqlEnum("direction", ["in", "out"]).notNull(),
+    amountKobo: int("amount_kobo").notNull(),
+    kind: mysqlEnum("kind", [
+      "sale_payment",
+      "expense",
+      "transfer",
+      "money_in",
+      "money_out",
+      "adjustment",
+      "credit_repayment",
+    ]).notNull(),
+    /** What business record caused this row, e.g. ("sale", "RB-000123"). */
+    refType: varchar("ref_type", { length: 30 }),
+    refId: varchar("ref_id", { length: 40 }),
+    /** Links the two legs of an internal transfer (TRF-…). */
+    transferGroup: varchar("transfer_group", { length: 40 }),
+    counterAccountId: bigint("counter_account_id", { mode: "number", unsigned: true })
+      .references(() => accounts.id),
+    note: varchar("note", { length: 255 }),
+    staffId: bigint("staff_id", { mode: "number", unsigned: true }).references(
+      () => users.id,
+    ),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("at_account_idx").on(table.accountId, table.createdAt),
+    index("at_kind_idx").on(table.kind),
+    index("at_staff_idx").on(table.staffId),
+    index("at_group_idx").on(table.transferGroup),
+  ],
+);
+
+export type Account = typeof accounts.$inferSelect;
+export type AccountTransaction = typeof accountTransactions.$inferSelect;
+
+export const accountTransactionsRelations = relations(accountTransactions, ({ one }) => ({
+  account: one(accounts, {
+    fields: [accountTransactions.accountId],
+    references: [accounts.id],
+  }),
+  staff: one(users, {
+    fields: [accountTransactions.staffId],
+    references: [users.id],
+  }),
+}));

@@ -32,6 +32,9 @@ export const AUDIT_ACTIONS = [
   "settlement.paid",
   "settlement.cancel",
   "settings.update",
+  "account.money_in",
+  "account.money_out",
+  "account.transfer",
   "permissions.update",
 ] as const;
 
